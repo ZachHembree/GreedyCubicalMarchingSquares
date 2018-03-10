@@ -121,19 +121,8 @@ namespace HelmetVolumes
                     octants[x + 1][y + 1] = new List<Octant>();
 
             GetOctantsZ(octants, hMapZ, length, width);
-
-            if (ContainsRepetition(octants))
-                throw new Exception("Contains Repetition (Z)");
-
             GetOctantsY(octants, hMapY, length, height, width);
-
-            if (ContainsRepetition(octants))
-                throw new Exception("Contains Repetition (Y)");
-
             GetOctantsX(octants, hMapX, width, height, length);
-
-            if (ContainsRepetition(octants))
-                throw new Exception("Contains Repetition (X)");
 
             return octants;
         }
@@ -257,10 +246,6 @@ namespace HelmetVolumes
                             }
 
                             last = y2;
-
-                            if (x > length || y2 > width || y2 < 0)
-                                Debug.Log("X: " + x + ", Y: " + y2 + " (" + hMapY[x][z][y] + ")");
-
                             z2 = GetHeight(octants[x + 1][y2 + 1], z);
 
                             if (z2 == int.MinValue)
@@ -314,9 +299,6 @@ namespace HelmetVolumes
                                 lastPoint.x /= n;
                                 n = 1;
                             }
-
-                            if (x2 > length || y > width || x2 < 0)
-                                Debug.Log("X: " + x2 + ", Y: " + y + " (" + hMapX[y][z][x] + ")");
 
                             last = x2;
                             z2 = GetHeight(octants[x2 + 1][y + 1], z);
