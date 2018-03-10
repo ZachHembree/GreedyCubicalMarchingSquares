@@ -7,16 +7,10 @@ using System.Collections.Generic;
 public class MapGen : MonoBehaviour
 {
     public Vector3 octantSize;
-	public float[][][] map;
+    public float[][][] map;
 	
     private MeshFilter meshFilter;
     public string display { get; private set; }
-
-    public void GetMap()
-    {
-        MapGenerator mapGenerator = new MapGenerator(length, width, height, useRandom, cohesion, seed);
-        map = mapGenerator.GenerateMap();
-    }
 
     public void GetMesh()
     {
