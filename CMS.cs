@@ -1,85 +1,46 @@
-﻿using System;  
+﻿using System;
+using System.Threading;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace HelmetVolumes
 {
-    public static class CMS
+    public static partial class CMS
     {
-        private static int div;
-        private static float zRes, xyRes = 0.5f;
-
-        public static Mesh ContourMesh(float[][][] heightMap, int _div = 2)
-        {
-            div = _div;
-            zRes = 1.0f / _div;
-
-            List<Vector3> vertices;
-            List<Segment>[][][] segments;
-            GetSegments(GetOctants(heightMap), out vertices, out segments);
-
-            List<Square>[][][] squares = new List<Square>[3][][]
-            {
-                GetSquaresX(segments),
-                GetSquaresY(segments),
-                GetSquaresZ(segments)
-            };
-
-            List<int> triangles;
-            GetCubes(vertices, squares, out triangles);
-
-            Mesh mesh = new Mesh();
-            mesh.vertices = vertices.ToArray();
-            mesh.triangles = triangles.ToArray();
-
-            return mesh;
-        }
+        public static string importVoxTime, dimensions, octantSize, startVertices;
+        private static Vector3 scale, delta, step, maximums;
+        //private static float scale.x, scale.y, scale.z, delta.x, delta.y, delta.z, step.x, step.y, step.z;
 
         private class Octant
         {
+            public static readonly Octant zero = new Octant(0, 0, 0, int.MinValue);
             public readonly int range;
-            public readonly float height;
+            public float x, y, z;
 
-            public Octant(float _height)
+            public Octant(float _x, float _y, float _z, int _range)
             {
-                range = (int)(_height * div);
-                height = _height;
+                x = _x;
+                y = _y;
+                z = _z;
+                range = _range;
             }
-        }
-
-        private static Octant[][][] GetOctants(float[][][] heightMap)
-        {
-            int length = heightMap.Length, width = heightMap[0].Length;
-            Octant[][][] octants = new Octant[length + 2][][];
-
-            for (int x = 0; x < octants.Length; x++)
-                octants[x] = new Octant[width + 2][];
-
-            for (int x = 0; x < octants.Length; x++)
+            
+            public Octant(int _x, int _y, float _z)
             {
-                octants[x][0] = new Octant[0];
-                octants[x][width + 1] = new Octant[0];
+                x = _x * scale.x;
+                y = _y * scale.y;
+                z = _z;
+                range = (int)(_z * step.z);
             }
 
-            for (int y = 1; y < octants[0].Length - 1; y++)
-            {
-                octants[0][y] = new Octant[0];
-                octants[length + 1][y] = new Octant[0];
-            }
+            public static Octant operator +(Octant a, Octant b) =>
+                new Octant(a.x + b.x, a.y + b.y, a.z + b.z, a.range);
 
-            for (int x = 0; x < length; x++)
-                for (int y = 0; y < width; y++)
-                    if (heightMap[x][y] != null)
-                    {
-                        octants[x + 1][y + 1] = new Octant[heightMap[x][y].Length];
+            public static Octant operator -(Octant a, Octant b) =>
+                new Octant(a.x + b.x, a.y + b.y, a.z + b.z, a.range);
 
-                        for (int z = 0; z < heightMap[x][y].Length; z++)
-                            octants[x + 1][y + 1][z] = new Octant(heightMap[x][y][z]);
-                    }
-                    else
-                        octants[x + 1][y + 1] = new Octant[0];
-
-            return octants;
+            public static Octant operator /(Octant a, int b) =>
+                new Octant(a.x / b, a.y / b, a.z / b, a.range);
         }
 
         private class Segment
@@ -95,105 +56,132 @@ namespace HelmetVolumes
             }
         }
 
-        private static void GetSegments(Octant[][][] octants, out List<Vector3> vertices, out List<Segment>[][][] segments)
+        private static void GetSegments(IList<Octant>[][] octants, out List<Vector3> vertices, out List<Segment>[][][] segments)
         {
-            int length = octants.Length, width = octants[1].Length, height,
-                index = 0, start, s1, s2, x1, x2, y1, y2;
-            float xyDelta = xyRes / 2,
-                  xPos, yPos;
-            vertices = new List<Vector3>();
-            segments = new List<Segment>[3][][]
-            { new List<Segment>[length - 1][], new List<Segment>[length - 1][], new List<Segment>[length - 1][] };
+            int length = octants.Length, width = octants[1].Length, index = 0;
+            vertices = new List<Vector3>((length * width * 6) + (length * width / 2));
+            segments = new List<Segment>[3][][] { new List<Segment>[length][], new List<Segment>[length][], new List<Segment>[length][] };
+
+            for (int x = 0; x < length; x++)
+            {
+                segments[0][x] = new List<Segment>[width];
+                segments[1][x] = new List<Segment>[width];
+                segments[2][x] = new List<Segment>[width];
+
+                segments[0][x][width - 1] = new List<Segment>(0);
+                segments[1][x][width - 1] = new List<Segment>(0);
+                segments[2][x][width - 1] = new List<Segment>(0);
+            }
+
+            for (int y = 0; y < width - 1; y++)
+            {
+                segments[0][length - 1][y] = new List<Segment>(0);
+                segments[1][length - 1][y] = new List<Segment>(0);
+                segments[2][length - 1][y] = new List<Segment>(0);
+            }
 
             for (int x = 0; x < length - 1; x++)
-            {
-                xPos = (x - 1) * xyRes;
-                segments[0][x] = new List<Segment>[width - 1];
-                segments[1][x] = new List<Segment>[width - 1];
-                segments[2][x] = new List<Segment>[width - 1];
-
                 for (int y = 0; y < width - 1; y++)
                 {
-                    height = octants[x][y] != null ? 2 * octants[x][y].Length : 0;
-                    segments[0][x][y] = new List<Segment>(height);
-                    segments[1][x][y] = new List<Segment>(height);
-                    segments[2][x][y] = new List<Segment>(height);
+                    segments[0][x][y] = GetSegmentColumnX(vertices, octants[x][y], octants[x + 1][y], ref index);
+                    segments[1][x][y] = GetSegmentColumnY(vertices, octants[x][y], octants[x][y + 1], ref index);
+                    segments[2][x][y] = GetSegmentColumnZ(vertices, octants[x][y], ref index);
+                }
 
-                    yPos = (y - 1) * xyRes;
-                    x1 = 0; x2 = 0; y1 = 0; y2 = 0;
+            startVertices = ("Starting Vertices: " + vertices.Count + "\n");
+        }
 
-                    while (x1 < octants[x][y].Length || x2 < octants[x + 1][y].Length)
-                    {
-                        s1 = x1 < octants[x][y].Length ? octants[x][y][x1].range : int.MaxValue;
-                        s2 = x2 < octants[x + 1][y].Length ? octants[x + 1][y][x2].range : int.MaxValue;
+        private static List<Segment> GetSegmentColumnX(List<Vector3> vertices, IList<Octant> a, IList<Octant> b, ref int index)
+        {
+            int x1 = 0, x2 = 0, s1, s2;
+            List<Segment> segments = new List<Segment>(a.Count + b.Count);
 
-                        if (s1 < s2)
-                        {
-                            segments[0][x][y].Add(new Segment(s1, index, 1));
-                            vertices.Add(new Vector3((xPos + xyDelta), yPos, s1 * zRes));
-                            x1++; index++;
-                        }
-                        else if (s1 > s2)
-                        {
-                            segments[0][x][y].Add(new Segment(s2, index, 2));
-                            vertices.Add(new Vector3((xPos + xyDelta), yPos, s2 * zRes));
-                            x2++; index++;
-                        }
-                        else
-                        {
-                            segments[0][x][y].Add(new Segment(s1, -1, 3));
-                            x1++; x2++;
-                        }
-                    }
+            while (x1 < a.Count || x2 < b.Count)
+            {
+                s1 = x1 < a.Count ? a[x1].range : int.MaxValue;
+                s2 = x2 < b.Count ? b[x2].range : int.MaxValue;
 
-                    while (y1 < octants[x][y].Length || y2 < octants[x][y + 1].Length)
-                    {
-                        s1 = y1 < octants[x][y].Length ? octants[x][y][y1].range : int.MaxValue;
-                        s2 = y2 < octants[x][y + 1].Length ? octants[x][y + 1][y2].range : int.MaxValue;
-
-                        if (s1 < s2)
-                        {
-                            segments[1][x][y].Add(new Segment(s1, index, 1));
-                            vertices.Add(new Vector3(xPos, (yPos + xyDelta), s1 * zRes));
-                            y1++; index++;
-                        }
-                        else if (s1 > s2)
-                        {
-                            segments[1][x][y].Add(new Segment(s2, index, 2));
-                            vertices.Add(new Vector3(xPos, (yPos + xyDelta), s2 * zRes));
-                            y2++; index++;
-                        }
-                        else
-                        {
-                            segments[1][x][y].Add(new Segment(s1, -1, 3));
-                            y1++; y2++;
-                        }
-                    }
-
-                    for (int z = 0; z < octants[x][y].Length; z++)
-                    {
-                        start = octants[x][y][z].range;
-
-                        if (z == 0 || (octants[x][y][z - 1].range != start - 1))
-                        {
-                            vertices.Add(new Vector3(xPos, yPos, octants[x][y][z].height - zRes));
-                            segments[2][x][y].Add(new Segment(start - 1, index, 2));
-                            index++;
-                        }
-
-                        if ((z + 1 == octants[x][y].Length) || (octants[x][y][z + 1].range != start + 1))
-                        {
-                            vertices.Add(new Vector3(xPos, yPos, octants[x][y][z].height));
-                            segments[2][x][y].Add(new Segment(start, index, 1));
-                            index++;
-                        }
-                        else
-                            segments[2][x][y].Add(new Segment(start, -1, 3));
-                    }
+                if (s1 < s2)
+                {
+                    segments.Add(new Segment(s1, index, 1));
+                    vertices.Add(new Vector3((a[x1].x + delta.x), a[x1].y, a[x1].z));
+                    x1++; index++;
+                }
+                else if (s1 > s2)
+                {
+                    segments.Add(new Segment(s2, index, 2));
+                    vertices.Add(new Vector3((b[x2].x - delta.x), b[x2].y, b[x2].z));
+                    x2++; index++;
+                }
+                else
+                {
+                    segments.Add(new Segment(s1, -1, 3));
+                    x1++; x2++;
                 }
             }
 
-            Debug.Log("Starting Vertices: " + vertices.Count);
+            return segments;
+        }
+
+        private static List<Segment> GetSegmentColumnY(List<Vector3> vertices, IList<Octant> a, IList<Octant> b, ref int index)
+        {
+            int y1 = 0, y2 = 0, s1, s2;
+            List<Segment> segments = new List<Segment>(a.Count + b.Count);
+
+            while (y1 < a.Count || y2 < b.Count)
+            {
+                s1 = y1 < a.Count ? a[y1].range : int.MaxValue;
+                s2 = y2 < b.Count ? b[y2].range : int.MaxValue;
+
+                if (s1 < s2)
+                {
+                    segments.Add(new Segment(s1, index, 1));
+                    vertices.Add(new Vector3(a[y1].x, (a[y1].y + delta.y), a[y1].z));
+                    y1++; index++;
+                }
+                else if (s1 > s2)
+                {
+                    segments.Add(new Segment(s2, index, 2));
+                    vertices.Add(new Vector3(b[y2].x, (b[y2].y - delta.y), b[y2].z));
+                    y2++; index++;
+                }
+                else
+                {
+                    segments.Add(new Segment(s1, -1, 3));
+                    y1++; y2++;
+                }
+            }
+
+            return segments;
+        }
+
+        private static List<Segment> GetSegmentColumnZ(List<Vector3> vertices, IList<Octant> octants, ref int index)
+        {
+            int start;
+            List<Segment> segments = new List<Segment>(octants.Count);
+
+            for (int z = 0; z < octants.Count; z++)
+            {
+                start = octants[z].range;
+
+                if (z == 0 || (octants[z - 1].range != start - 1))
+                {
+                    vertices.Add(new Vector3(octants[z].x, octants[z].y, (octants[z].z - delta.z)));
+                    segments.Add(new Segment(start - 1, index, 2));
+                    index++;
+                }
+
+                if ((z + 1 == octants.Count) || (octants[z + 1].range != start + 1))
+                {
+                    vertices.Add(new Vector3(octants[z].x, octants[z].y, octants[z].z + delta.z));
+                    segments.Add(new Segment(start, index, 1));
+                    index++;
+                }
+                else
+                    segments.Add(new Segment(start, -1, 3));
+            }
+
+            return segments;
         }
 
         private class Edge
@@ -228,14 +216,23 @@ namespace HelmetVolumes
                         edges = new Edge[(conf == 6 || conf == 9) ? 4 : 2];
 
                         for (int n = 0; n < 4; n++)
+                        {
                             if (sides[n].index != -1)
                             {
                                 edges[count] = new Edge(n, sides[n].index);
                                 count++;
                             }
+                        }
 
                         if (count != edges.Length)
+                        {
+                            Debug.Log("[New Square]");
+
+                            for (int n = 0; n < 4; n++)
+                                Debug.Log("[Segment] " + +n + ", Conf: " + sides[n].conf + ", Index: " + sides[n].index);
+
                             throw new Exception("[Edge Error] Supplied segments do not form a face. (" + (count - edges.Length) + ")");
+                        }
                     }
 
                     if (conf == 6)
@@ -273,163 +270,141 @@ namespace HelmetVolumes
             }
         }
 
-        // X
-        private static List<Square>[][] GetSquaresX(List<Segment>[][][] segments)
+        private static List<Square>[][][] GetSquares(List<Segment>[][][] segments)
         {
-            int length = segments[0].Length, width = segments[0][0].Length,
-                start, last, z1, z2;
-            Segment[] sides = new Segment[4];
-            List<Square>[][] squares = new List<Square>[length][];
+            int length = segments[0].Length - 1, width = segments[0][0].Length - 1;
+            List<Square>[][][] squares = new List<Square>[3][][] { new List<Square>[length][], new List<Square>[length][], new List<Square>[length][] };
 
-            for (int x = 0; x < segments[0].Length; x++)
+            for (int x = 0; x < length; x++)
             {
-                squares[x] = new List<Square>[width];
+                squares[0][x] = new List<Square>[width];
+                squares[1][x] = new List<Square>[width];
+                squares[2][x] = new List<Square>[width];
 
-                for (int y = 0; y < segments[0][x].Length; y++)
+                for (int y = 0; y < width; y++)
                 {
-                    last = int.MinValue;
-                    z1 = 0; z2 = 0;
-                    squares[x][y] = new List<Square>(2 * segments[0][x][y].Count);
-
-                    for (int z = 0; z < segments[0][x][y].Count; z++)
-                    {
-                        start = segments[0][x][y][z].z;
-
-                        if (last != start - 1)
-                        {
-                            start--;
-
-                            sides[0] = segments[0][x][y][z];
-                            sides[1] = GetSegment(segments[2], x + 1, y, start, ref z1);
-                            sides[2] = Segment.zero;
-                            sides[3] = GetSegment(segments[2], x, y, start, ref z2);
-
-                            squares[x][y].Add(new Square(sides, start));
-                            start++;
-                        }
-
-                        sides[0] = GetNextSegment(segments[0][x][y], z + 1, start + 1);
-                        sides[1] = GetSegment(segments[2], x + 1, y, start, ref z1);
-                        sides[2] = segments[0][x][y][z];
-                        sides[3] = GetSegment(segments[2], x, y, start, ref z2);
-
-                        squares[x][y].Add(new Square(sides, start));
-                        last = start;
-                    }
+                    squares[0][x][y] = GetSquareColumnX(segments[0][x][y], segments[2][x][y], segments[2][x + 1][y]);
+                    squares[1][x][y] = GetSquareColumnY(segments[1][x][y], segments[2][x][y], segments[2][x][y + 1]);
+                    squares[2][x][y] = GetSquareColumnZ(segments[0][x][y], segments[0][x][y + 1], segments[1][x][y], segments[1][x + 1][y]);
                 }
             }
 
             return squares;
         }
 
-        // Y
-        private static List<Square>[][] GetSquaresY(List<Segment>[][][] segments)
+        private static List<Square> GetSquareColumnX(List<Segment> a, List<Segment> b1, List<Segment> b2)
         {
-            int length = segments[1].Length, width = segments[1][0].Length,
-                start, last, z1, z2;
+            int start, last = int.MinValue, z1 = 0, z2 = 0;
             Segment[] sides = new Segment[4];
-            List<Square>[][] squares = new List<Square>[length][];
+            List<Square> squares = new List<Square>(2 * a.Count);
 
-            for (int x = 0; x < segments[1].Length; x++)
+            for (int z = 0; z < a.Count; z++)
             {
-                squares[x] = new List<Square>[width];
+                start = a[z].z;
 
-                for (int y = 0; y < segments[1][x].Length; y++)
+                if (last != start - 1)
                 {
-                    last = int.MinValue;
-                    z1 = 0; z2 = 0;
-                    squares[x][y] = new List<Square>(2 * segments[1][x][y].Count);
+                    start--;
 
-                    for (int z = 0; z < segments[1][x][y].Count; z++)
-                    {
-                        start = segments[1][x][y][z].z;
+                    sides[0] = a[z];
+                    sides[1] = GetSegment(b2, start, ref z1);
+                    sides[2] = Segment.zero;
+                    sides[3] = GetSegment(b1, start, ref z2);
 
-                        if (last != start - 1)
-                        {
-                            start--;
-
-                            sides[0] = Segment.zero;
-                            sides[1] = GetSegment(segments[2], x, y + 1, start, ref z1);
-                            sides[2] = segments[1][x][y][z];
-                            sides[3] = GetSegment(segments[2], x, y, start, ref z2);
-
-                            squares[x][y].Add(new Square(sides, start));
-                            start++;
-                        }
-
-                        sides[0] = segments[1][x][y][z];
-                        sides[1] = GetSegment(segments[2], x, y + 1, start, ref z1);
-                        sides[2] = GetNextSegment(segments[1][x][y], z + 1, start + 1);
-                        sides[3] = GetSegment(segments[2], x, y, start, ref z2);
-
-                        squares[x][y].Add(new Square(sides, start));
-                        last = start;
-                    }
+                    squares.Add(new Square(sides, start));
+                    start++;
                 }
+
+                sides[0] = GetNextSegment(a, z + 1, start + 1);
+                sides[1] = GetSegment(b2, start, ref z1);
+                sides[2] = a[z];
+                sides[3] = GetSegment(b1, start, ref z2);
+
+                squares.Add(new Square(sides, start));
+                last = start;
             }
 
             return squares;
         }
 
-        // Z
-        private static List<Square>[][] GetSquaresZ(List<Segment>[][][] segments)
+        private static List<Square> GetSquareColumnY(List<Segment> a, List<Segment> b1, List<Segment> b2)
         {
-            int length = segments[0].Length, width = segments[0][0].Length,
-                start, z1, z2, y1, y2;
+            int start, last = int.MinValue, z1 = 0, z2 = 0;
+            Segment[] sides = new Segment[4];
+            List<Square> squares = new List<Square>(2 * a.Count);
+
+            for (int z = 0; z < a.Count; z++)
+            {
+                start = a[z].z;
+
+                if (last != start - 1)
+                {
+                    start--;
+
+                    sides[0] = Segment.zero;
+                    sides[1] = GetSegment(b2, start, ref z1);
+                    sides[2] = a[z];
+                    sides[3] = GetSegment(b1, start, ref z2);
+
+                    squares.Add(new Square(sides, start));
+                    start++;
+                }
+
+                sides[0] = a[z];
+                sides[1] = GetSegment(b2, start, ref z1);
+                sides[2] = GetNextSegment(a, z + 1, start + 1);
+                sides[3] = GetSegment(b1, start, ref z2);
+
+                squares.Add(new Square(sides, start));
+                last = start;
+            }
+
+            return squares;
+        }
+
+        private static List<Square> GetSquareColumnZ(List<Segment> a1, List<Segment> a2, List<Segment> b1, List<Segment> b2)
+        {
+            int start = int.MinValue, z1 = 0, z2 = 0, y1 = 0, y2 = 0;
             Segment x1, x2;
             Segment[] sides = new Segment[4];
-            List<Square>[][] squares = new List<Square>[length][];
+            List<Square> squares = new List<Square>(2 * a1.Count);
 
-            for (int x = 0; x < segments[0].Length; x++)
+            while (start != int.MaxValue)
             {
-                squares[x] = new List<Square>[width];
+                x1 = z1 < a1.Count ? a1[z1] : Segment.zero;
+                x2 = z2 < a2.Count ? a2[z2] : Segment.zero;
 
-                for (int y = 0; y < segments[0][x].Length; y++)
+                if (x1.z < x2.z) { z1++; start = x1.z; x2 = Segment.zero; }
+                else if (x1.z > x2.z) { z2++; start = x2.z; x1 = Segment.zero; }
+                else { z1++; z2++; start = x1.z; }
+
+                if (start != int.MaxValue)
                 {
-                    start = int.MinValue; z1 = 0; z2 = 0; y1 = 0; y2 = 0;
-                    squares[x][y] = new List<Square>(2 * segments[0][x][y].Count);
+                    sides[0] = x2;
+                    sides[1] = GetSegment(b2, start, ref y1);
+                    sides[2] = x1;
+                    sides[3] = GetSegment(b1, start, ref y2);
 
-                    while (start != int.MaxValue)
-                    {
-                        x1 = z1 < segments[0][x][y].Count ? segments[0][x][y][z1] : Segment.zero;
-                        x2 = (y + 1 < segments[0][x].Length && z2 < segments[0][x][y + 1].Count) ? segments[0][x][y + 1][z2] : Segment.zero;
-
-                        if (x1.z < x2.z) { z1++; start = x1.z; x2 = Segment.zero; }
-                        else if (x1.z > x2.z) { z2++; start = x2.z; x1 = Segment.zero; }
-                        else { z1++; z2++; start = x1.z; }
-
-                        if (start != int.MaxValue)
-                        {
-                            sides[0] = x2;
-                            sides[1] = GetSegment(segments[1], x + 1, y, start, ref y1);
-                            sides[2] = x1;
-                            sides[3] = GetSegment(segments[1], x, y, start, ref y2);
-
-                            squares[x][y].Add(new Square(sides, start));
-                        }
-                    }
+                    squares.Add(new Square(sides, start));
                 }
             }
 
             return squares;
         }
 
-        private static Segment GetSegment(List<Segment>[][] segs, int x, int y, int z, ref int i)
+        private static Segment GetSegment(List<Segment> segs, int z, ref int i)
         {
-            if (x >= 0 && x < segs.Length && y >= 0 && y < segs[0].Length)
+            for (int n = i; n < segs.Count; n++)
             {
-                for (int n = i; n < segs[x][y].Count; n++)
+                if (segs[n].z == z)
                 {
-                    if (segs[x][y][n].z == z)
-                    {
-                        i = n;
-                        return segs[x][y][n];
-                    }
-                    else if (segs[x][y][n].z > z)
-                    {
-                        i = n;
-                        return Segment.zero;
-                    }
+                    i = n;
+                    return segs[n];
+                }
+                else if (segs[n].z > z)
+                {
+                    i = n;
+                    return Segment.zero;
                 }
             }
 
@@ -444,16 +419,16 @@ namespace HelmetVolumes
             return Segment.zero;
         }
 
-        private static void GetCubes(List<Vector3> vertices, List<Square>[][][] squares, out List<int> triangles)
+        private static List<int> GetCubes(List<Vector3> vertices, List<Square>[][][] squares)
         {
-            int start, last, x1, x2, y1, y2;
+            int length = squares[2].Length, width = squares[2][0].Length,
+                start, last, x1, x2, y1, y2;
             int[] indices = new int[12];
             Square[] faces = new Square[6];
-            triangles = new List<int>(squares[2].Length * squares[2][0].Length * 12);
+            List<int> triangles = new List<int>(squares[2].Length * squares[2][0].Length * 27);
 
-            for (int x = 0; x < squares[2].Length; x++)
-            {
-                for (int y = 0; y < squares[2][x].Length; y++)
+            for (int x = 0; x < length; x++)
+                for (int y = 0; y < width; y++)
                 {
                     last = int.MinValue;
                     x1 = 0; x2 = 0; y1 = 0; y2 = 0;
@@ -488,7 +463,8 @@ namespace HelmetVolumes
                         last = start;
                     }
                 }
-            }
+
+            return triangles;
         }
 
         private static Square GetSquare(List<Square>[][] squares, int x, int y, int z, ref int i)
