@@ -4,7 +4,7 @@ using HelmetVolumes;
 using System.Diagnostics;
 using System.Collections.Generic;
 
-public class Importer : MonoBehaviour
+public class MeshMono : MonoBehaviour
 {
     public Mesh inputMesh;
     public float resolution;
@@ -38,12 +38,12 @@ public class Importer : MonoBehaviour
     }
 }
 
-[CustomEditor(typeof(Importer))]
+[CustomEditor(typeof(MeshMono))]
 public class ImporterInspector : Editor
 {
     public override void OnInspectorGUI()
     {
-        Importer importer = (Importer)target;
+        MeshMono importer = (MeshMono)target;
         base.OnInspectorGUI();
 
         if (GUILayout.Button("Import Mesh"))
