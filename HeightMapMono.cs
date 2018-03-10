@@ -4,7 +4,7 @@ using HelmetVolumes;
 using System.Diagnostics;
 using System.Collections.Generic;
 
-public class MapGen : MonoBehaviour
+public class HeightMapMono : MonoBehaviour
 {
     public Vector3 octantSize;
     public float[][][] map;
@@ -39,11 +39,11 @@ public class MapGen : MonoBehaviour
 }
 
 [CustomEditor(typeof(MapGen))]
-public class MapGenInspector : Editor
+public class HeightMapMonoInspector : Editor
 {
     public override void OnInspectorGUI()
     {
-        MapGen cGen = (MapGen)target;
+        HeightMapMono cGen = (HeightMapMono)target;
         base.OnInspectorGUI();
 
         if (GUILayout.Button("Generate Mesh"))
