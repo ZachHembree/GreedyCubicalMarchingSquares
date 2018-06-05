@@ -48,8 +48,8 @@ namespace CmsMain
         }
 
         /// <summary>
-        /// Finds a pair of divergent segments to form the basis of the edges of a larger
-        /// surface comprised of coplanar segments. 
+        /// Finds a pair of linearly independent segments to form the basis of the outermost edges of a planar
+        /// surface comprised of an arbitrary number of coplanar and interconnected segments. 
         /// </summary>
         private static void GetReducedSurface(Side side, List<Edge> corners, List<Edge> edges)
         {
