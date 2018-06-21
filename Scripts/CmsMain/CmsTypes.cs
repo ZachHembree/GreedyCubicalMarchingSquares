@@ -5,57 +5,112 @@ using UnityEngine;
 
 namespace CmsMain
 {
-    public static partial class Volume
+    /// <summary>
+    /// Stores vertex and triangle information necessary to create a new mesh.
+    /// </summary>
+    public class MeshData
     {
-        /// <summary>
-        /// Defines the intersection between a ray and surface within a given volume.
-        /// </summary>
-        private class Octant
+        private readonly Vector3[] vertices;
+        private readonly int[] triangles;
+
+        public MeshData(IList<Vector3> _vertices, IList<int> _triangles)
         {
-            public static readonly Octant zero = new Octant(0, 0, 0, int.MinValue);
-            public readonly int range;
-            public float x, y, z;
+            vertices = new Vector3[_vertices.Count];
+            triangles = new int[_triangles.Count];
+            _vertices.CopyTo(vertices, 0);
+            _triangles.CopyTo(triangles, 0);
+        }
 
-            public Octant(float _x, float _y, float _z, int _range)
+        /// <summary>
+        /// Instantiates a new mesh using the vertex and triangle data used to instantiate the MeshData
+        /// object. This method can only be called from the main thread.
+        /// </summary>
+        public Mesh GetMesh()
+        {
+            Mesh mesh = new Mesh();
+            mesh.vertices = vertices;
+            mesh.triangles = triangles;
+
+            return mesh;
+        }
+    }
+
+    /// <summary>
+    /// Defines the intersection between a surface and a volume of a given size.
+    /// </summary>
+    public class Octant
+    {
+        public static readonly Octant zero = new Octant(0, 0, 0, int.MinValue);
+        public readonly int range;
+        public float x, y, z;
+
+        public Octant(float _x, float _y, float _z, int _range)
+        {
+            x = _x;
+            y = _y;
+            z = _z;
+            range = _range;
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj == null || GetType() != obj.GetType())
+                return false;
+
+            Octant b = (Octant)obj;
+
+            return (b.range == range && x == b.x && y == b.y && z == b.z);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
             {
-                x = _x;
-                y = _y;
-                z = _z;
-                range = _range;
-            }
+                int hash = 17;
+                hash = hash * 23 + range.GetHashCode();
+                hash = hash * 23 + x.GetHashCode();
+                hash = hash * 23 + y.GetHashCode();
+                hash = hash * 23 + z.GetHashCode();
 
-            public Octant(int _x, int _y, float _z, int _range) // just pass in the scale
-            {
-                x = _x * scale.x;
-                y = _y * scale.y;
-                z = _z;
-                range = _range;
-            }
-
-            public override bool Equals(object obj)
-            {
-                if (obj == null || GetType() != obj.GetType())
-                    return false;
-
-                Octant b = (Octant)obj;
-
-                return (b.range == range && x == b.x && y == b.y && z == b.z);
-            }
-
-            public override int GetHashCode()
-            {
-                unchecked
-                {
-                    int hash = 17;
-                    hash = hash * 23 + range.GetHashCode();
-                    hash = hash * 23 + x.GetHashCode();
-                    hash = hash * 23 + y.GetHashCode();
-
-                    return hash;
-                }
+                return hash;
             }
         }
 
+        public static Octant operator +(Octant a, Octant b)
+        {
+            if (a.range == b.range)
+                return new Octant(a.x + b.x, a.y + b.y, a.z + b.z, a.range);
+            else
+                throw new Exception("Cannot perform addition on Octants with different ranges.");
+        }
+
+        public static Octant operator -(Octant a, Octant b)
+        {
+            if (a.range == b.range)
+                return new Octant(a.x - b.x, a.y - b.y, a.z - b.z, a.range);
+            else
+                throw new Exception("Cannot perform subtraction on Octants with different ranges.");
+        }
+
+        public static Octant operator *(Octant a, float b) =>
+            new Octant(a.x * b, a.y * b, a.z * b, a.range);
+
+        public static Octant operator *(Octant a, int b) =>
+            new Octant(a.x * b, a.y * b, a.z * b, a.range);
+
+        public static Octant operator /(Octant a, float b) =>
+            new Octant(a.x / b, a.y / b, a.z / b, a.range);
+
+        public static Octant operator /(Octant a, int b) =>
+            new Octant(a.x / b, a.y / b, a.z / b, a.range);
+    }
+
+    public partial class Volume
+    {
+        /// <summary>
+        /// Defines the direction of the edge of intersecting Segments and stores the
+        /// location of those intersecting Segments.
+        /// </summary>
         private class Edge
         {
             public static readonly Edge zero = new Edge(int.MaxValue, -1, 0);
@@ -74,6 +129,9 @@ namespace CmsMain
             }
         }
 
+        /// <summary>
+        /// Defines the position of a given Edge in relation to other edges on a given face.
+        /// </summary>
         private class DirEdge
         {
             public static readonly DirEdge zero = new DirEdge(int.MaxValue, null);
@@ -87,11 +145,15 @@ namespace CmsMain
             }
         }
 
+        /// <summary>
+        /// Defines a line segment on a face.
+        /// </summary>
         private class Segment
         {
             public static readonly Segment zero = new Segment(null, null);
             public readonly DirEdge start, end;
-            public readonly int diagonal;
+            public readonly bool diagonal;
+            public readonly int comp;
             public int used;
 
             public Segment(DirEdge _start, DirEdge _end)
@@ -104,7 +166,8 @@ namespace CmsMain
                 {
                     start.edge.segments[start.dir] = this;
                     end.edge.segments[end.dir] = this;
-                    diagonal = (start.dir + end.dir) % 2;
+                    comp = start.edge.conf + end.edge.conf;
+                    diagonal = (start.dir + end.dir) % 2 == 1;
                 }
             }
 
@@ -121,184 +184,141 @@ namespace CmsMain
                     return DirEdge.zero;
             }
 
-            public int GetOppositeDir(Edge edge) // get rid of this
-            {
-                if (start.edge == edge)
-                    return end.dir;
-                else if (end.edge == edge)
-                    return start.dir;
-                else
-                    return 0;
-            }
-
-            public bool TryGetOppositeEdge(int sideUsed, ref DirEdge next)
+            public DirEdge TryGetOppositeEdge(int sideUsed, Edge next)
             {
                 if (used != -2 && used != sideUsed)
-                {
-                    if (start.edge == next.edge)
-                        next = end;
-                    else if (end.edge == next.edge)
-                        next = start;
-                    else
+                    if (start.edge == next)
                     {
-                        next = DirEdge.zero;
-                        return false;
+                        used = used == -1 ? sideUsed : -2;
+                        return end;
+                    }
+                    else if (end.edge == next)
+                    {
+                        used = used == -1 ? sideUsed : -2;
+                        return start;
                     }
 
-                    used = used == -1 ? sideUsed : -2;
-                    return true;
-                }
-                else
-                {
-                    next = DirEdge.zero;
-                    return false;
-                }
-            }
-
-            public Segment GetSegByDir(int edgeDir)
-            {
-                if (start.dir == edgeDir && start.edge.segments[planeDirs[edgeDir]] != null)
-                    return start.edge.segments[planeDirs[edgeDir]];
-                else if (end.dir == edgeDir && end.edge.segments[planeDirs[edgeDir]] != null)
-                    return end.edge.segments[planeDirs[edgeDir]];
-                else
-                    return zero;
+                return DirEdge.zero;
             }
         }
 
         private struct Side
         {
-            public Segment seg;
-            public DirEdge next;
-            public int dir;
-            public bool complete;
+            public Segment Seg { get; private set; }
+            public DirEdge Next { get; private set; }
+            public int Dir { get; private set; }
+            public bool EndFound { get; private set; }
 
             public Side(Segment _seg, DirEdge _next, int _dir)
             {
-                seg = _seg;
-                next = _next;
-                dir = _dir;
-                complete = false;
+                Seg = _seg;
+                Next = _next;
+                Dir = _dir;
+                EndFound = false;
             }
 
-            public bool TryGetStart(ref Side left, ref Side right)
+            public void ReverseDirection()
             {
-                DirEdge opp = seg.GetOppositeEdge(next.edge);
+                Dir = Dir == 0 ? 1 : 0;
+                EndFound = false;
 
-                if (next.dir < 2)
-                {
-                    left.seg = seg;
-                    left.next = next;
-                    left.dir = dir;
-                    left.complete = false;
-
-                    right.seg = opp.edge.segments[edgeDirs[dir][opp.dir]];
-                    right.next = right.seg.GetOppositeEdge(opp.edge); 
-                    right.dir = cubeDirs[opp.dir];
-                    right.complete = false;
-
-                    return right.next.dir < 2;
-                }
-                else if (opp.dir < 2)
-                {
-                    left.seg = next.edge.segments[edgeDirs[dir][next.dir]];
-                    left.next = left.seg.GetOppositeEdge(next.edge);
-                    left.dir = cubeDirs[next.dir];
-                    left.complete = false;
-
-                    right.seg = seg;
-                    right.next = opp;
-                    right.dir = dir;
-                    right.complete = false;
-
-                    return left.next.dir < 2;
-                }
-
-                return false;
-            }
-
-            public bool TryGetHexStart(ref Side left, ref Side right)
-            {
-                if (seg.start.dir > 1 && seg.end.dir > 1)
-                {
-                    DirEdge opp = seg.GetOppositeEdge(next.edge);
-
-                    left.seg = next.edge.segments[edgeDirs[dir][next.dir]];
-                    left.next = left.seg.GetOppositeEdge(next.edge);
-                    left.dir = cubeDirs[next.dir];
-                    left.complete = false;
-
-                    right.seg = opp.edge.segments[edgeDirs[dir][opp.dir]];
-                    right.next = right.seg.GetOppositeEdge(opp.edge);
-                    right.dir = cubeDirs[opp.dir];
-                    right.complete = false;
-
-                    return left.next.dir < 2 && right.next.dir < 2;
-                }
-
-                return false;
-            }
-
-            public void GetNextSide()
-            {
-                seg = next.edge.segments[edgeDirs[dir][next.dir]];
-                dir = cubeDirs[next.dir];
-                next = seg.GetOppositeEdge(next.edge);
-                complete = false;
-            }
-
-            public void GetNextSide(bool diagonal)
-            {
-                Segment comp = next.edge.segments[edgeDirs[dir][next.dir]];
-
-                if (diagonal || seg.diagonal == comp.diagonal)
-                {
-                    seg = comp;
-                    dir = cubeDirs[next.dir];
-                    next = seg.GetOppositeEdge(next.edge);
-                    complete = false;
-                }
+                if (Dir == 0)
+                    Next = Seg.start;
                 else
-                    next = DirEdge.zero;
+                    Next = Seg.end;
             }
 
-            public bool TryGetNextSide()
+            public int TryGetStart(ref Side left, ref Side right)
             {
-                seg = next.edge.segments[edgeDirs[dir][next.dir]];
-                dir = cubeDirs[next.dir];
+                Side center = this;
+                DirEdge opp = Seg.GetOppositeEdge(Next.edge);
 
-                return seg.TryGetOppositeEdge(dir, ref next);
-            }
-
-            public bool TryGetCompliment()
-            {
-                if (!complete)
+                if (center.CanGetEnd())
                 {
-                    Segment comp = next.edge.segments[planeDirs[next.dir]];
-                    //Debug.Log("Diagonal: (" + (comp.diagonal + ", " + seg.diagonal) + "), Comp Used: " + comp.IsUsed(dir));
+                    left = center;
 
-                    if (comp.diagonal == seg.diagonal && !comp.IsUsed(dir))
+                    right.Seg = opp.edge.segments[edgeDirs[Dir][opp.dir]];
+                    right.Next = right.Seg.GetOppositeEdge(opp.edge); 
+                    right.Dir = cubeDirs[opp.dir];
+                    right.EndFound = false;
+
+                    return right.CanGetEnd() ? 2 : 1;
+                }
+
+                center.Next = opp;
+
+                if (center.CanGetEnd())
+                {
+                    left.Seg = Next.edge.segments[edgeDirs[Dir][Next.dir]];
+                    left.Next = left.Seg.GetOppositeEdge(Next.edge);
+                    left.Dir = cubeDirs[Next.dir];
+                    left.EndFound = false;
+
+                    right = center;
+
+                    return left.CanGetEnd() ? 2 : 1;
+                }
+
+                return 0;
+            }
+
+            public void GetNextFace()
+            {
+                Seg = Next.edge.segments[edgeDirs[Dir][Next.dir]];
+                Dir = cubeDirs[Next.dir];
+                Next = Seg.GetOppositeEdge(Next.edge);
+                EndFound = false;
+            }
+
+            public bool TryGetNextFace()
+            {
+                Seg = Next.edge.segments[edgeDirs[Dir][Next.dir]];
+                Dir = cubeDirs[Next.dir];
+                Next = Seg.TryGetOppositeEdge(Dir, Next.edge);
+
+                return Next != DirEdge.zero;
+            }
+
+            public bool CanGetEnd()
+            {
+                Segment end = Next.edge.segments[planeDirs[Next.dir]];
+                return !end.IsUsed(Dir) && (Seg.diagonal == end.diagonal) && (Seg.comp == end.comp);
+            }
+
+            public void GetEnd()
+            {
+                if (!EndFound)
+                {
+                    Segment end = Next.edge.segments[planeDirs[Next.dir]];
+
+                    if (!end.IsUsed(Dir))
                     {
-                        if (seg.start.edge == comp.end.edge && seg.end.edge.conf == comp.start.edge.conf)
-                        {
-                            seg = comp;
-                            next = comp.start;
-
-                            return true;
-                        }
-                        else if (seg.end.edge == comp.start.edge && seg.start.edge.conf == comp.end.edge.conf)
-                        {
-                            seg = comp;
-                            next = comp.end;
-
-                            return true;
-                        }
+                        Seg = end;
+                        Next = end.GetOppositeEdge(Next.edge);
+                        EndFound = false;
                     }
                 }
 
-                complete = true;
-                return false;
+                EndFound = true;
             }
+
+            public bool TryGetEnd()
+            {
+                if (!EndFound)
+                {
+                    Segment end = Next.edge.segments[planeDirs[Next.dir]];
+
+                    if (!end.IsUsed(Dir) && (Seg.diagonal == end.diagonal) && (Seg.comp == end.comp))
+                    {
+                        Seg = end;
+                        Next = end.GetOppositeEdge(Next.edge);
+                        return true;
+                    }
+                }
+
+                EndFound = true;
+                return false;
+            }            
         }
     }
 }

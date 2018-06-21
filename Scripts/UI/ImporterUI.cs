@@ -13,7 +13,6 @@ public class ImporterUI : MonoBehaviour
     private MeshRenderer meshRenderer;
     private Transform meshTransform;
     private Importer importer;
-    private Mesh[] meshes;
 
 	public void Start ()
     {
@@ -22,24 +21,7 @@ public class ImporterUI : MonoBehaviour
         meshTransform = volumeGenerator.transform;
 
         meshRenderer.enabled = false;
-        button.onClick.AddListener(delegate { UpdateImporter(); });
-
-        meshes = new Mesh[] 
-        {
-            GetPrimitiveMesh(PrimitiveType.Sphere),
-            GetPrimitiveMesh(PrimitiveType.Cylinder),
-            Resources.Load<Mesh>("Scope"),
-            Resources.Load<Mesh>("Cabinet")
-        };
-    }
-
-    private Mesh GetPrimitiveMesh(PrimitiveType primitive)
-    {
-        GameObject gameObject = GameObject.CreatePrimitive(primitive);
-        Mesh mesh = gameObject.GetComponent<MeshFilter>().sharedMesh;
-        Destroy(gameObject);
-
-        return mesh;
+        button.onClick.AddListener(delegate { UpdateImporter(); });        
     }
 
     private void UpdateRes()
@@ -60,25 +42,25 @@ public class ImporterUI : MonoBehaviour
     {
         if (meshSelector.value == 0)
         {
-            importer.inputMesh = meshes[0];
+            importer.inputMesh = importer.meshes[0];
             meshTransform.position = new Vector3(3.58f, 11.44f, -11.17f);
             meshTransform.eulerAngles = Vector3.zero;
         }
         else if (meshSelector.value == 1)
         {
-            importer.inputMesh = meshes[1];
+            importer.inputMesh = importer.meshes[1];
             meshTransform.position = new Vector3(3.66f, 10.29f, -10.79f);
             meshTransform.eulerAngles = Vector3.zero;
         }
         else if (meshSelector.value == 2)
         {
-            importer.inputMesh = meshes[2];
+            importer.inputMesh = importer.meshes[2];
             meshTransform.position = new Vector3(3.94f, 4.88f, -3.07f);
             meshTransform.eulerAngles = new Vector3(0f, 120f, 0f);
         }
         else if (meshSelector.value == 3)
         {
-            importer.inputMesh = meshes[3];
+            importer.inputMesh = importer.meshes[3];
             meshTransform.position = new Vector3(3.3f, -165.69f, 129f);
             meshTransform.eulerAngles = Vector3.zero;
         }

@@ -5,18 +5,44 @@ using UnityEngine;
 
 namespace CmsMain
 {
-    public static partial class Volume
+    public partial class Volume
     {
-        public static string importVoxTime { get; private set; }
-        public static string dimensions { get; private set; }
-        public static string octantSize { get; private set; }
-        public static string startVertices { get; private set; }
+        public float lastVoxelTime { get; private set; }
+        public float lastImportTime { get; private set; }
+        public Vector3 scale { get; private set; }
+        public Vector3 delta { get; private set; }
+        public Vector3 step { get; private set; }
+        public Vector3 max { get; private set; } 
+        public Vector3Int dimensions { get; private set; }
 
-        private static Vector3 scale, delta, step, maximums;
         private static readonly int[] cubeDirs = new int[] { 1, 1, 0, 0 }, planeDirs = new int[] { 2, 3, 0, 1 };
         private static readonly int[][] edgeDirs = new int[][] { new int[] { 3, 2, 3, 2 }, new int[] { 1, 0, 1, 0 } };
 
-        private static List<Edge>[][][] GetEdges(IList<Octant>[][] octants, out List<Vector3> vertices) // interior edges shouldn't be needed
+        public MeshData ContourMesh(IList<Octant>[][] octants, bool reduce = false) // , bool expand = false
+        {
+            System.Diagnostics.Stopwatch voxelTimer = new System.Diagnostics.Stopwatch();
+            voxelTimer.Start();
+
+            List<Vector3> vertices, redVertices;
+            List<Edge>[][][] edges = GetEdges(octants, out vertices);
+            List<Segment> segments = GetSegments(edges);
+            List<int> triangles;
+
+            if (reduce)
+            {
+                triangles = GetReducedMesh(vertices, edges, segments, out redVertices);
+                vertices = redVertices;
+            }
+            else
+                triangles = GetMesh(vertices, segments);
+
+            voxelTimer.Stop();
+            lastVoxelTime = voxelTimer.ElapsedMilliseconds;
+
+            return new MeshData(vertices, triangles);
+        }
+
+        private List<Edge>[][][] GetEdges(IList<Octant>[][] octants, out List<Vector3> vertices) 
         {
             int length = octants.Length, width = octants[1].Length;
             List<Edge>[][][] edges = new List<Edge>[3][][]
@@ -49,12 +75,10 @@ namespace CmsMain
                     edges[2][x][y] = GetEdgeColumnZ(vertices, octants[x][y]);
                 }
 
-            startVertices = ("Starting Vertices: " + vertices.Count + "\n");
-
             return edges;
         }
 
-        private static List<Edge> GetEdgeColumnX(List<Vector3> vertices, IList<Octant> x1, IList<Octant> x2)
+        private List<Edge> GetEdgeColumnX(List<Vector3> vertices, IList<Octant> x1, IList<Octant> x2)
         {
             int n1 = 0, n2 = 0, s1, s2;
             List<Edge> edges = new List<Edge>(x1.Count + x2.Count);
@@ -68,7 +92,7 @@ namespace CmsMain
                 {
                     edges.Add(new Edge(s1, vertices.Count, 1));
                     vertices.Add(new Vector3((x1[n1].x + delta.x), x1[n1].y, x1[n1].z));
-                    n1++; 
+                    n1++;
                 }
                 else if (s1 > s2)
                 {
@@ -78,7 +102,7 @@ namespace CmsMain
                 }
                 else
                 {
-                    edges.Add(new Edge(s1, -1, 3));
+                    edges.Add(new Edge(s1, -1, 3)); 
                     n1++; n2++;
                 }
             }
@@ -86,7 +110,7 @@ namespace CmsMain
             return edges;
         }
 
-        private static List<Edge> GetEdgeColumnY(List<Vector3> vertices, IList<Octant> y1, IList<Octant> y2)
+        private List<Edge> GetEdgeColumnY(List<Vector3> vertices, IList<Octant> y1, IList<Octant> y2)
         {
             int n1 = 0, n2 = 0, s1, s2;
             List<Edge> edges = new List<Edge>(y1.Count + y2.Count);
@@ -100,7 +124,7 @@ namespace CmsMain
                 {
                     edges.Add(new Edge(s1, vertices.Count, 1));
                     vertices.Add(new Vector3(y1[n1].x, (y1[n1].y + delta.y), y1[n1].z));
-                    n1++; 
+                    n1++;
                 }
                 else if (s1 > s2)
                 {
@@ -118,7 +142,7 @@ namespace CmsMain
             return edges;
         }
 
-        private static List<Edge> GetEdgeColumnZ(List<Vector3> vertices, IList<Octant> z)
+        private List<Edge> GetEdgeColumnZ(List<Vector3> vertices, IList<Octant> z)
         {
             int start;
             List<Edge> edges = new List<Edge>(z.Count);
@@ -148,7 +172,7 @@ namespace CmsMain
         private static List<Segment> GetSegments(List<Edge>[][][] edges)
         {
             int length = edges[0].Length - 1, width = edges[0][0].Length - 1;
-            List<Segment> segments =  new List<Segment>(length * width * 3);
+            List<Segment> segments = new List<Segment>(length * width * 3);
 
             for (int x = 0; x < length; x++)
             {
@@ -325,30 +349,31 @@ namespace CmsMain
             foreach (Segment seg in segments)
             {
                 if (!seg.IsUsed(0))
-                    GetSurface(seg, seg.end, 0, indices, vertices, triangles);
+                    GetSurface(new Side(seg, seg.start, 0), indices, vertices, triangles);
 
                 if (!seg.IsUsed(1))
-                    GetSurface(seg, seg.start, 1, indices, vertices, triangles);
+                    GetSurface(new Side(seg, seg.end, 1), indices, vertices, triangles);
             }
 
             return triangles;
         }
 
-        private static void GetSurface(Segment segment, DirEdge next, int dir, List<int> indices, List<Vector3> vertices, List<int> triangles)
+        private static void GetSurface(Side side, List<int> indices, List<Vector3> vertices, List<int> triangles)
         {
-            Edge start = next.edge;
-            indices.Clear();
-            indices.Add(next.edge.index);
+            Edge start = side.Next.edge;
+            int count = 0;
 
-            while (segment.TryGetOppositeEdge(dir, ref next) && start != next.edge)
+            indices.Clear();
+            indices.Add(side.Next.edge.index);
+
+            while (side.TryGetNextFace() && start != side.Next.edge)
             {
-                indices.Add(next.edge.index);
-                segment = next.edge.segments[edgeDirs[dir][next.dir]];
-                dir = cubeDirs[next.dir];
+                indices.Add(side.Next.edge.index);
+                count++;
             }
 
-            if (next == null || next.edge.index != indices[0] || indices.Count < 3)
-                throw new Exception("[Cube Error] Could not form an enclosed surface. (" + indices.Count + ")");
+            if (side.Next == DirEdge.zero || start != side.Next.edge || count < 2)
+                throw new Exception("[Cube Error] Could not form an enclosed surface. (" + count + ")");
 
             GetPolys(vertices, triangles, indices);
         }

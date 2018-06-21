@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace CmsMain
 {
-    public static partial class Volume
+    public partial class Volume
     {
         /// <summary>
         /// Creates a finished and simplified mesh from the provided segments and vertices.
@@ -13,17 +13,36 @@ namespace CmsMain
         private static List<int> GetReducedMesh(List<Vector3> vertices, List<Edge>[][][] startEdges, List<Segment> segments, out List<Vector3> redVertices) 
         {
             List<Edge> corners = new List<Edge>(12), edges = new List<Edge>(vertices.Count * 2);
-            List<int> indices = new List<int>(12), triangles = new List<int>(vertices.Count * 9);
-            redVertices = new List<Vector3>(vertices.Count / 2);
 
             foreach (Segment seg in segments)
             {
                 if (!seg.IsUsed(0))
-                    GetReducedSurface(new Side(seg, seg.start, 0), corners, edges);
+                    TryGetReducedSurface(new Side(seg, seg.start, 0), corners, edges);
 
                 if (!seg.IsUsed(1))
-                    GetReducedSurface(new Side(seg, seg.end, 1), corners, edges);
+                    TryGetReducedSurface(new Side(seg, seg.end, 1), corners, edges);
             }
+
+            foreach (Segment seg in segments)
+            {
+                if (!seg.IsUsed(0))
+                    GetSurface(new Side(seg, seg.start, 0), corners, edges);
+
+                if (!seg.IsUsed(1))
+                    GetSurface(new Side(seg, seg.end, 1), corners, edges);
+            }   
+
+            return GetTriangles(edges, startEdges, vertices, out redVertices);
+        }
+
+        /// <summary>
+        /// Creates a new list of vertices containing only vertices used and uses those vertices in conjunction
+        /// with the supplied edges to create the final list of triangles.
+        /// </summary>
+        private static List<int> GetTriangles(List<Edge> edges, List<Edge>[][][] startEdges, List<Vector3> vertices, out List<Vector3> redVertices)
+        {
+            List<int> indices = new List<int>(12), triangles = new List<int>(vertices.Count * 9);
+            redVertices = new List<Vector3>(vertices.Count / 2);
 
             for (int x = 0; x < 3; x++)
                 for (int y = 0; y < startEdges[x].Length; y++)
@@ -48,165 +67,214 @@ namespace CmsMain
         }
 
         /// <summary>
-        /// Finds a pair of linearly independent segments to form the basis of the outermost edges of a planar
+        /// Finds the edges necessary to polygonize a surface without extending into neighboring voxels.
+        /// </summary>
+        private static void GetSurface(Side side, List<Edge> corners, List<Edge> edges)
+        {
+            Edge end = side.Next.edge;
+
+            corners.Clear();
+            corners.Add(side.Next.edge);
+            side.GetNextFace();
+
+            while (side.Next != DirEdge.zero && side.Next.edge != end)
+            {
+                corners.Add(side.Next.edge);
+                side.GetNextFace();
+            }
+
+            if (side.Next == DirEdge.zero || side.Next.edge != end || corners.Count < 3)
+                throw new Exception("[Reduction Error] Could not start surface. (" + corners.Count + ")");
+
+            foreach (Edge e in corners)
+                e.used = true;
+
+            MarkSurfaceUsed(side);
+            edges.AddRange(corners);
+            edges.Add(Edge.zero);
+        }
+
+        /// <summary>
+        /// Tries to find pair of linearly independent segments to form the basis of the outermost edges of a planar
         /// surface comprised of an arbitrary number of coplanar and interconnected segments. 
         /// </summary>
-        private static void GetReducedSurface(Side side, List<Edge> corners, List<Edge> edges)
+        private static void TryGetReducedSurface(Side side, List<Edge> corners, List<Edge> edges)
         {
-            bool done = false; // change this when you fix it
-            Edge end = side.next.edge;
+            int sidesFound = 0;
+            Edge end = side.Next.edge;
             Side left = new Side(), right = new Side();
 
             corners.Clear();
-            corners.Add(side.next.edge);
-            side.GetNextSide();
+            corners.Add(side.Next.edge);
+            side.GetNextFace();
 
-            while (side.next != DirEdge.zero && side.next.edge != end)
+            while (side.Next != DirEdge.zero && side.Next.edge != end)
             {
-                corners.Add(side.next.edge);
+                corners.Add(side.Next.edge);
 
-                if (!done)
-                    done = side.TryGetStart(ref left, ref right);
+                if (sidesFound < 2)
+                    sidesFound = side.TryGetStart(ref left, ref right);
 
-                side.GetNextSide();
+                side.GetNextFace();
             }
 
-            if (side.next == DirEdge.zero || side.next.edge != end || corners.Count < 3)
+            if (side.Next == DirEdge.zero || side.Next.edge != end || corners.Count < 3)
                 throw new Exception("[Reduction Error] Could not start surface. (" + corners.Count + ")");
 
-            if (corners.Count <= 4 && left.seg != null)
-            {             
-                Edge opp = left.seg.GetOppositeEdge(left.next.edge).edge;
+            if (corners.Count <= 4 && sidesFound > 0) 
+            {
+                Edge opp = left.Seg.GetOppositeEdge(left.Next.edge).edge;
                 edges.Add(opp);
                 opp.used = true;
 
                 GetSurfaceEdges(left, right, edges);
                 edges.Add(Edge.zero);
             }
-            else
-            {
-                foreach (Edge e in corners)
-                    e.used = true;
-
-                MarkSurfaceUsed(side);
-                edges.AddRange(corners);
-                edges.Add(Edge.zero);
-            }
         }
 
         /// <summary>
-        /// Finds the edges of a given planar surface of arbitrary size.
+        /// Finds the edges of a given planar surface of arbitrary size given a starting basis (the left and right sides).
         /// </summary>
         private static void GetSurfaceEdges(Side left, Side right, List<Edge> edges)
         {
-            int countLeft = 1, countRight = 1;
-            bool middleDir = false, canExpand = true;
-            List<Edge> leftEdges = new List<Edge>(), rightEdges = new List<Edge>();
-            List<Edge>[] middleEdges = null;
+            int countLeft = -1, countRight = -1;
+            bool skip = true, diagonal = (left.Seg.diagonal && right.Seg.diagonal);
+            Side lastLeft = left, lastRight = right;
             List<Side> middleSides = new List<Side>(6);
+            List<Edge>[] middleEdges = null;
+            List<Edge> leftEdges = new List<Edge>(), rightEdges = new List<Edge>();
 
-            while ((!left.complete || !right.complete) && canExpand) 
+            while (CanExpand(left, right, leftEdges.Count, rightEdges.Count)) 
             {
-                if (countLeft < countRight) 
-                {
-                    canExpand = CanGetMiddleEdges(right, left.next.edge, countLeft, countRight);
+                skip = !skip;
 
-                    if (canExpand)
-                        middleEdges = GetMiddleEdges(right, left.next.edge, countLeft, countRight, middleSides);
+                if (!left.EndFound)
+                    leftEdges.Add(left.Next.edge);                    
+
+                if (!right.EndFound)
+                    rightEdges.Add(right.Next.edge);
+
+                if (diagonal && skip)
+                {
+                    if (countLeft != -1)
+                        GetMiddleEdges(lastLeft, lastRight, countLeft, countRight, middleSides);
+
+                    countLeft = leftEdges.Count; countRight = rightEdges.Count;
+                    lastLeft = left; lastRight = right;
                 }
                 else
-                {
-                    canExpand = CanGetMiddleEdges(left, right.next.edge, countRight, countLeft);
+                    middleEdges = GetMiddleEdges(left, right, leftEdges.Count, rightEdges.Count, middleSides);
 
-                    if (canExpand)
-                        middleEdges = GetMiddleEdges(left, right.next.edge, countRight, countLeft, middleSides);
-                }
-
-                if (canExpand)
-                {
-                    middleDir = countLeft < countRight;
-
-                    if (!left.complete)
-                        leftEdges.Add(left.next.edge);
-
-                    if (left.TryGetCompliment())
-                        countLeft++;
-
-                    if (!right.complete)
-                        rightEdges.Add(right.next.edge);
-
-                    if (right.TryGetCompliment())
-                        countRight++;
-                }
+                left.TryGetEnd();
+                right.TryGetEnd();
             }
 
-            foreach (Side s in middleSides)
-                MarkSurfaceUsed(s);
+            if (diagonal && skip)
+                middleEdges = GetMiddleEdges(lastLeft, lastRight, countLeft, countRight, middleSides);
 
-            foreach (Edge e in middleEdges[1])
-                e.used = true;
+            for (int n = middleSides.Count - 1; n >= 0; n--)
+                MarkSurfaceUsed(middleSides[n]);
 
-            GetOrderedEdges(leftEdges, middleEdges[0], rightEdges, edges, middleDir);
+            for (int n = middleEdges[1].Count - 1; n >= 0; n--)
+                middleEdges[1][n].used = true;
+
+            GetOrderedEdges(leftEdges, middleEdges[0], rightEdges, edges);
         }
 
         /// <summary>
         /// Determines whether there is a viable path between the starting side and the
         /// end point.
         /// </summary>
-        private static bool CanGetMiddleEdges(Side side, Edge end, int length, int width) 
+        private static bool CanExpand(Side start, Side end, int length, int width) 
         {
-            int max = length - 1, count = 0, dirChanges = 0;
-
-            side.GetNextSide();
-            length--;
-
-            while (side.next.edge != end && count <= max && dirChanges < 3)
+            if (!start.EndFound || !end.EndFound)
             {
-                if (count != max && side.TryGetCompliment())
-                    count++;
+                if (!start.EndFound)
+                    length++;
+                if (!end.EndFound)
+                    width++;
+
+                if (length < width)
+                    SwapValues(ref start, ref end);
                 else
+                    SwapValues(ref length, ref width);
+
+                int max, count = 0, dirChanges = 0, maxChanges;
+
+                start.GetNextFace();
+                length = (start.Seg.diagonal == end.Seg.diagonal && length > 2) ? 2 : length - 1;
+                max = length;
+                maxChanges = end.Seg.comp == start.Seg.comp ? 2 : 1;
+
+                while (start.Next.edge != end.Next.edge && count <= max && dirChanges < maxChanges)
                 {
-                    if (count == max && (max < length + width)) max += width;
+                    if (count != max && start.TryGetEnd())
+                        count++;
+                    else
+                    {
+                        if (count == max && (max < length + width))
+                            max += width;
 
-                    side.GetNextSide();
-                    dirChanges++;
+                        start.GetNextFace();
+                        dirChanges++;
+                    }
                 }
-            }
 
-            return side.next.edge == end;
+                return start.Next.edge == end.Next.edge;
+            }
+            else
+                return false;
         }
 
         /// <summary>
-        /// Compiles a list of intervening edges between the starting side and end point.
+        /// Compiles a list of intervening edges between the starting side and end side.
         /// </summary>
-        private static List<Edge>[] GetMiddleEdges(Side side, Edge end, int length, int width, List<Side> sides)
+        private static List<Edge>[] GetMiddleEdges(Side start, Side end, int length, int width, List<Side> sides)
         {
-            int max = length - 1, count = 0, dirChanges = 0;
+            if (length < width)
+                SwapValues(ref start, ref end);
+            else
+                SwapValues(ref length, ref width);
+
+            int max, count = 0;
             List<Edge>[] edges = new List<Edge>[] { new List<Edge>(6), new List<Edge>() };
 
-            edges[1].Add(side.next.edge);
-            side.GetNextSide();
-            length--;
+            edges[1].Add(start.Next.edge);
+            start.GetNextFace();
+            length = (start.Seg.diagonal == end.Seg.diagonal && length > 2) ? 2 : length - 1;
+            max = length;
+            sides.Add(start);
 
-            while (side.next.edge != end && count <= max && dirChanges < 3)
+            while (start.Next.edge != end.Next.edge && count <= max)
             {
-                edges[0].Add(side.next.edge);
-                sides.Add(side);
+                edges[0].Add(start.Next.edge);
 
-                if (count != max && side.TryGetCompliment())
+                if (count != max && start.TryGetEnd())
+                {
+                    sides.Add(start);
                     count++;
+                }
                 else
                 {
                     if (count == max && (max < length + width)) max += width;
-                    dirChanges++;
 
-                    edges[1].Add(side.next.edge);
-                    side.GetNextSide();
+                    edges[1].Add(start.Next.edge);
+                    start.GetNextFace();
                 }
             }
 
-            sides.Add(side);
+            edges[1].Add(start.Next.edge);
             return edges;
+        }
+
+        /// <summary>
+        /// Transposes the references of two supplied variables with one another.
+        /// </summary>
+        private static void SwapValues<T>(ref T a, ref T b)
+        {
+            T c = a;
+            a = b;
+            b = c;
         }
 
         /// <summary>
@@ -214,36 +282,36 @@ namespace CmsMain
         /// </summary>
         private static void MarkSurfaceUsed(Side side)
         {
-            if (!side.seg.IsUsed(side.dir))
+            if (!side.Seg.IsUsed(side.Dir))
             {
-                Edge start = side.next.edge;
+                Edge start = side.Next.edge;
                 int count = 0;
 
-                while (side.TryGetNextSide() && start != side.next.edge)
+                while (side.TryGetNextFace() && start != side.Next.edge)
                     count++;
 
-                if (side.next == DirEdge.zero || start != side.next.edge || count < 2)
+                if (side.Next == DirEdge.zero || start != side.Next.edge || count < 2)
                     throw new Exception("[Cube Error] Could not form an enclosed surface. (" + count + ")");
             }
             
         }
 
         /// <summary>
-        /// Arranges the edges of the surface so that they're in clockwise/counte-clockwise
+        /// Arranges the edges of the surface so that they're in clockwise/counter-clockwise
         /// order starting from the first or leftmost edges and ending with the rightmost edges.
         /// </summary>
-        private static void GetOrderedEdges(List<Edge> first, List<Edge> middle, List<Edge> last, List<Edge> edges, bool reverse)
+        private static void GetOrderedEdges(List<Edge> left, List<Edge> middle, List<Edge> right, List<Edge> edges)
         {
-            edges.AddRange(first);
+            edges.AddRange(left);
 
-            if (reverse)
+            if (left.Count < right.Count)
                 for (int n = middle.Count - 1; n >= 0; n--)
                     edges.Add(middle[n]);
             else
                 edges.AddRange(middle);
 
-            for (int n = last.Count - 1; n >= 0; n--)
-                edges.Add(last[n]);
+            for (int n = right.Count - 1; n >= 0; n--)
+                edges.Add(right[n]);
         }
     }
 }

@@ -4,10 +4,13 @@ using UnityEngine;
 
 namespace CmsMain
 {
-    public static partial class Volume
+    public partial class Volume
     {
-        public static Mesh ContourMesh(IList<float>[][] heightMap, Vector3 _scale, bool reduce = false, bool expand = false)
+        public MeshData VoxelizeHeightmap(IList<float>[][] heightMap, Vector3 _scale, bool reduce = false)
         {
+            System.Diagnostics.Stopwatch importTimer = new System.Diagnostics.Stopwatch();
+            importTimer.Start();
+
             if (_scale.x <= 0 || _scale.y <= 0 || _scale.z <= 0)
                 scale = Vector3.one;
             else
@@ -15,29 +18,37 @@ namespace CmsMain
 
             step = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
             delta = new Vector3(scale.x / 2f, scale.y / 2f, scale.z / 2f);
-
-            List<Vector3> vertices, redVertices;
+            dimensions = new Vector3Int(heightMap.Length + 2, heightMap[0].Length + 2, -1);
             List<Octant>[][] octants = GetOctants(heightMap);
-            List<Edge>[][][] edges = GetEdges(octants, out vertices); // make these 2d/3d at some point; fuck CLR
-            List<Segment> segments = GetSegments(edges);
-            List<int> triangles;
 
-            if (reduce)
-            {
-                triangles = GetReducedMesh(vertices, edges, segments, out redVertices);
-                vertices = redVertices;
-            }
-            else
-                triangles = GetMesh(vertices, segments);
+            importTimer.Stop();
+            lastImportTime = importTimer.ElapsedMilliseconds;
 
-            Mesh mesh = new Mesh();
-            mesh.vertices = vertices.ToArray();
-            mesh.triangles = triangles.ToArray();
-
-            return mesh;
+            return ContourMesh(octants, reduce);
         }
 
-        private static List<Octant>[][] GetOctants(IList<float>[][] heightMap)
+        public List<Octant>[][] GetHeightmapOctants(IList<float>[][] heightMap, Vector3 _scale)
+        {
+            System.Diagnostics.Stopwatch importTimer = new System.Diagnostics.Stopwatch();
+            importTimer.Start();
+
+            if (_scale.x <= 0 || _scale.y <= 0 || _scale.z <= 0)
+                scale = Vector3.one;
+            else
+                scale = _scale;
+
+            step = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
+            delta = new Vector3(scale.x / 2f, scale.y / 2f, scale.z / 2f);
+            dimensions = new Vector3Int(heightMap.Length + 2, heightMap[0].Length + 2, -1);
+            List<Octant>[][] octants = GetOctants(heightMap);
+
+            importTimer.Stop();
+            lastImportTime = importTimer.ElapsedMilliseconds;
+
+            return octants;
+        }
+
+        private List<Octant>[][] GetOctants(IList<float>[][] heightMap)
         {
             int length = heightMap.Length, width = heightMap[0].Length, next, n;
             Octant last;
@@ -77,7 +88,7 @@ namespace CmsMain
                                     n = 1;
                                 }
 
-                                last = new Octant(x, y, heightMap[x][y][z], next);
+                                last = new Octant(x * scale.x, y * scale.y, heightMap[x][y][z], next);
                                 octants[x + 1][y + 1].Add(last);
                             }
                             else

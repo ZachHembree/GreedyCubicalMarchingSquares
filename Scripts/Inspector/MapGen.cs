@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 using UnityEditor;
-using CmsMain;
+using CmsNext;
 using System.Diagnostics;
 using System.Collections.Generic;
 
@@ -14,6 +14,11 @@ public class MapGen : MonoBehaviour
     private MeshFilter meshFilter;
     private IList<float>[][] map;
     public string display { get; private set; }
+
+    public void Start()
+    {
+        simplifyMesh = false;
+    }
 
     public void GetMap()
     {
@@ -32,20 +37,25 @@ public class MapGen : MonoBehaviour
             meshFilter = GetComponent<MeshFilter>();
 
             timer.Start();
-            meshFilter.sharedMesh = Volume.ContourMesh(map, octantSize, simplifyMesh);
+            Volume volume = new Volume();
+            MeshData meshData = volume.VoxelizeHeightmap(map, octantSize, simplifyMesh);
+            meshFilter.sharedMesh = meshData.GetMesh();
             timer.Stop();
 
             meshFilter.sharedMesh.RecalculateNormals();
 
-            string vertRate = timer.ElapsedMilliseconds > 0f ? ("" + (meshFilter.sharedMesh.vertexCount / timer.ElapsedMilliseconds)) : "inf", 
-                triRate = timer.ElapsedMilliseconds > 0f ? ("" + (meshFilter.sharedMesh.triangles.Length / 3 / timer.ElapsedMilliseconds)) : "inf";
+            string vtxSpeed = timer.ElapsedMilliseconds > 0f ? "" + (meshFilter.sharedMesh.vertexCount / timer.ElapsedMilliseconds) : "inf",
+                triSpeed = timer.ElapsedMilliseconds > 0f ? "" + (meshFilter.sharedMesh.triangles.Length / 3 / timer.ElapsedMilliseconds) : "inf";
 
             display =
             (
-                "Total Time: " + timer.ElapsedMilliseconds + "ms\n\n" +
-                Volume.startVertices +
-                "Verticies: " + meshFilter.sharedMesh.vertexCount + " (" + vertRate + " verts/ms)\n" +
-                "Triangles: " + (meshFilter.sharedMesh.triangles.Length / 3) + " (" + triRate + " tris/ms)\n"
+                "Dimensions: (" + volume.dimensions.x + ", " + volume.dimensions.y + ", " + volume.dimensions.z + ")\n" +
+                "Scale: (" + volume.scale.x + ", " + volume.scale.y + ", " + volume.scale.z + ")\n" +
+                "Verticies: " + meshFilter.sharedMesh.vertexCount + " (" + vtxSpeed + " verts/ms)\n" +
+                "Triangles: " + (meshFilter.sharedMesh.triangles.Length / 3) + " (" + triSpeed + " tris/ms)\n\n" +
+                "Import Time: " + volume.lastImportTime + "ms\n" +
+                "Voxel Time: " + volume.lastVoxelTime + "ms\n" +
+                "Total Time: " + timer.ElapsedMilliseconds + "ms\n"
             );
         }
     }

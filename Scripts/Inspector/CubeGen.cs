@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System;
 using UnityEngine;
-using CmsMain;
+using CmsNext;
 
 [ExecuteInEditMode]
 public class CubeGen : MonoBehaviour
@@ -26,13 +26,14 @@ public class CubeGen : MonoBehaviour
 
     public void GetMesh()
     {
+        Volume volume = new Volume();
+        MeshData meshData = volume.VoxelizeHeightmap(GetHeightMap(), octantSize, simplifyMesh);
+
         meshFilter = GetComponent<MeshFilter>();
-        meshFilter.sharedMesh = Volume.ContourMesh(GetHeightMap(), octantSize, simplifyMesh);
+        meshFilter.sharedMesh = meshData.GetMesh();
         meshFilter.sharedMesh.RecalculateNormals();
 
         display =
-            Volume.dimensions +
-            Volume.startVertices +
             "Verticies: " + meshFilter.sharedMesh.vertexCount + "\n" +
             "Triangles: " + (meshFilter.sharedMesh.triangles.Length / 3) + "\n";
     }
@@ -61,6 +62,49 @@ public class CubeGen : MonoBehaviour
             new float[2][] { l1.ToArray(), l2.ToArray() },
             new float[2][] { l3.ToArray(), l4.ToArray() }
         };
+
+        /*heightMap = new float[][][]
+        {
+            new float[][] { new float[] { .25f, .75f, 1.25f },  new float[] { .25f, .75f }, new float[] { .25f } },
+            new float[][] { new float[] { .25f, .75f }, new float[] { .25f }, new float[] { } },
+            new float[][] { new float[] { .25f }, new float[] { }, new float[] { } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 1
+
+            new float[][] { new float[] { .25f }, new float[] { }, new float[] { } },
+            new float[][] { new float[] { .25f, .75f }, new float[] { .25f }, new float[] { } },
+            new float[][] { new float[] { .25f, .75f, 1.25f },  new float[] { .25f, .75f }, new float[] { .25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 2
+
+            new float[][] { new float[] { .25f },   new float[] { .25f, .75f }, new float[] { .25f, .75f, 1.25f } },
+            new float[][] { new float[] { }, new float[] { .25f }, new float[] { .25f, .75f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { .25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 3
+
+            new float[][] { new float[] { }, new float[] { }, new float[] { .25f } },
+            new float[][] { new float[] { }, new float[] { .25f }, new float[] { .25f, .75f } },
+            new float[][] { new float[] { .25f }, new float[] { .25f, .75f }, new float[] { .25f, .75f, 1.25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 4
+
+            new float[][] { new float[] { .25f, .75f, 1.25f }, new float[] { .75f, 1.25f }, new float[] { 1.25f } },
+            new float[][] { new float[] { .75f, 1.25f }, new float[] { 1.25f }, new float[] { } },
+            new float[][] { new float[] { 1.25f }, new float[] { }, new float[] { } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 5
+
+            new float[][] { new float[] { 1.25f }, new float[] { }, new float[] { } },
+            new float[][] { new float[] { .75f, 1.25f }, new float[] { 1.25f }, new float[] { } },
+            new float[][] { new float[] { .25f, .75f, 1.25f }, new float[] { .75f, 1.25f }, new float[] { 1.25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 6
+
+            new float[][] { new float[] { 1.25f }, new float[] { .75f, 1.25f }, new float[] { .25f, .75f, 1.25f } },
+            new float[][] { new float[] { }, new float[] { 1.25f }, new float[] { .75f, 1.25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { 1.25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 7
+
+            new float[][] { new float[] { }, new float[] { }, new float[] { 1.25f } },
+            new float[][] { new float[] { }, new float[] { 1.25f }, new float[] { .75f, 1.25f } },
+            new float[][] { new float[] { 1.25f }, new float[] { .75f, 1.25f }, new float[] { .25f, .75f, 1.25f } },
+            new float[][] { new float[] { }, new float[] { }, new float[] { } }, // break 8
+        };*/
 
         return heightMap;
     }
