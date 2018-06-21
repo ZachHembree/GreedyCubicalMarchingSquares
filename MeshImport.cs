@@ -3,53 +3,51 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace HelmetVolumes
+namespace CmsMain
 {
-    static partial class CMS
-    {       
-        public static Mesh ContourMesh(Mesh inputMesh, float res)
+    public partial class Volume
+    {
+        public MeshData VoxelizeMesh(Mesh inputMesh, Vector3 res, bool reduce = false, bool expand = false)
         {
-            System.Diagnostics.Stopwatch
-                importTime = new System.Diagnostics.Stopwatch(),
-                voxelTime = new System.Diagnostics.Stopwatch();
+            System.Diagnostics.Stopwatch importTimer = new System.Diagnostics.Stopwatch();
+            importTimer.Start();
 
-            if (res <= 0) res = 1;
+            if (res.x <= 0f || res.y <= 0f || res.z <= 0f) res = Vector3.one;
             int[] inTris = inputMesh.triangles;
             Vector3[] inVerts = inputMesh.vertices;
 
             scale = GetScale(inVerts, inTris, res);
             step = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
             delta = new Vector3(scale.x / 2f, scale.y / 2f, scale.z / 2f);
-
-            importTime.Start();
             List<Octant>[][] octants = GetOctants(inTris, inVerts);
-            importTime.Stop();
 
-            voxelTime.Start();
-            List<Vector3> vertices;
-            List<Segment>[][][] segments;
-            GetSegments(octants, out vertices, out segments);
+            importTimer.Stop();
+            lastImportTime = importTimer.ElapsedMilliseconds;
 
-            List<Square>[][][] squares = GetSquares(segments);
-            List<int> triangles = GetCubes(vertices, squares);
-            voxelTime.Stop();
-
-            Mesh mesh = new Mesh();
-            mesh.vertices = vertices.ToArray();
-            mesh.triangles = triangles.ToArray();
-
-            octantSize = "Octant Size: (" + scale.x + ", " + scale.y + ", " + scale.z + ")\n"; 
-
-            importVoxTime =
-            (
-                "Import Time: " + importTime.ElapsedMilliseconds + "ms\n" +
-                "Voxel Time: " + voxelTime.ElapsedMilliseconds + "ms\n"
-            );
-
-            return mesh;
+            return ContourMesh(octants, reduce);
         }
 
-        private static Vector3 GetScale(Vector3[] v, int[] t, float res)
+        public List<Octant>[][] GetMeshOctants(Mesh inputMesh, Vector3 res)
+        {
+            System.Diagnostics.Stopwatch importTimer = new System.Diagnostics.Stopwatch();
+            importTimer.Start();
+
+            if (res.x <= 0f || res.y <= 0f || res.z <= 0f) res = Vector3.one;
+            int[] inTris = inputMesh.triangles;
+            Vector3[] inVerts = inputMesh.vertices;
+
+            scale = GetScale(inVerts, inTris, res);
+            step = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
+            delta = new Vector3(scale.x / 2f, scale.y / 2f, scale.z / 2f);
+            List<Octant>[][] octants = GetOctants(inTris, inVerts);
+
+            importTimer.Stop();
+            lastImportTime = importTimer.ElapsedMilliseconds;
+
+            return octants;
+        }
+
+        private static Vector3 GetScale(Vector3[] v, int[] t, Vector3 res)
         {
             Vector3 avg = Vector3.zero;
 
@@ -61,7 +59,9 @@ namespace HelmetVolumes
             }
 
             avg /= (t.Length / 3);
-            avg *= res * .5f;
+            avg.x *= res.x;
+            avg.y *= res.y;
+            avg.z *= res.z;
 
             return avg;
         }
@@ -88,499 +88,213 @@ namespace HelmetVolumes
             return max;
         }
 
-        private static List<Octant>[][] GetOctants(int[] triangles, Vector3[] vertices)
+        private List<Octant>[][] GetOctants(int[] triangles, Vector3[] vertices)
         {
-            int length, width, height;
-            List<Octant>[][] octants;
-            List<float>[][] hMapZ, hMapY, hMapX;
-
-            GetDimensions(vertices, out length, out width, out height);
-            hMapZ = GetHeightMapZ(length, width, triangles, vertices);
-            hMapY = GetHeightMapY(length, height, triangles, vertices);
-            hMapX = GetHeightMapX(width, height, triangles, vertices);
-
-            octants = new List<Octant>[length + 2][];
+            dimensions = GetDimensions(vertices);
+            List<Vector3> surface = GetMeshSurface(triangles, vertices);
+            List<Octant>[][] startingOctants = GetStartingOctants(surface, dimensions),
+                octants = new List<Octant>[dimensions.x + 2][];
 
             for (int x = 0; x < octants.Length; x++)
-                octants[x] = new List<Octant>[width + 2];
+                octants[x] = new List<Octant>[dimensions.y + 2];
 
             for (int x = 0; x < octants.Length; x++)
             {
                 octants[x][0] = new List<Octant>(0);
-                octants[x][width + 1] = new List<Octant>(0);
+                octants[x][dimensions.y + 1] = new List<Octant>(0);
             }
 
             for (int y = 1; y < octants[0].Length - 1; y++)
             {
                 octants[0][y] = new List<Octant>(0);
-                octants[length + 1][y] = new List<Octant>(0);
+                octants[dimensions.x + 1][y] = new List<Octant>(0);
             }
 
-            for (int x = 0; x < length; x++)
-                for (int y = 0; y < width; y++)
-                    octants[x + 1][y + 1] = new List<Octant>();
+            int last, avgCount;
+            Octant current = null;
 
-            GetOctantsZ(octants, hMapZ, length, width);
-            GetOctantsY(octants, hMapY, length, height, width);
-            GetOctantsX(octants, hMapX, width, height, length);
+            for (int x = 0; x < dimensions.x; x++)
+                for (int y = 0; y < dimensions.y; y++)
+                {
+                    last = int.MinValue;
+                    avgCount = 1;
+                    octants[x + 1][y + 1] = new List<Octant>((startingOctants[x][y].Count / 3) + 2);
+
+                    foreach (Octant o in startingOctants[x][y])
+                    {
+                        if (last < o.range)
+                        {
+                            if (avgCount > 1)
+                                current /= avgCount;
+
+                            current = o;
+                            last = current.range;
+                            octants[x + 1][y + 1].Add(current);
+                        }
+                        else
+                        {
+                            current += o;
+                            avgCount++;
+                        }
+                    }
+                }
 
             return octants;
         }
 
-        private static void GetDimensions(Vector3[] vertices, out int length, out int width, out int height)
+        private Vector3Int GetDimensions(Vector3[] vertices)
         {
-            float
-                 xMin = float.MaxValue, xMax = float.MinValue,
-                 yMin = float.MaxValue, yMax = float.MinValue,
-                 zMin = float.MaxValue, zMax = float.MinValue;
+            Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue),
+                max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
 
             foreach (Vector3 v in vertices)
             {
-                if (v.x < xMin) xMin = v.x;
-                if (v.y < yMin) yMin = v.y;
-                if (v.z < zMin) zMin = v.z;
-                if (v.x > xMax) xMax = v.x;
-                if (v.y > yMax) yMax = v.y;
-                if (v.z > zMax) zMax = v.z;
+                if (v.x < min.x) min.x = v.x;
+                if (v.y < min.y) min.y = v.y;
+                if (v.z < min.z) min.z = v.z;
+                if (v.x > max.x) max.x = v.x;
+                if (v.y > max.y) max.y = v.y;
+                if (v.z > max.z) max.z = v.z;
             }
 
             for (int n = 0; n < vertices.Length; n++)
+                vertices[n] -= min;
+
+            max -= min;
+            return new Vector3Int((int)(max.x * step.x), (int)(max.y * step.y), (int)(max.z * step.z)) + Vector3Int.one;
+        }
+
+        private List<Octant>[][] GetStartingOctants(List<Vector3> intersections, Vector3Int dimensions)
+        {
+            List<Octant>[][] startingOctants = new List<Octant>[dimensions.x][]; ;
+
+            for (int x = 0; x < startingOctants.Length; x++)
             {
-                vertices[n].x -= xMin;
-                vertices[n].y -= yMin;
-                vertices[n].z -= zMin;
+                startingOctants[x] = new List<Octant>[dimensions.y];
+
+                for (int y = 0; y < startingOctants[x].Length; y++)
+                    startingOctants[x][y] = new List<Octant>(6);
             }
 
-            xMax -= xMin;
-            yMax -= yMin;
-            zMax -= zMin;
-            maximums = new Vector3(xMax, yMax, zMax);
+            foreach (Vector3 v in intersections)
+                startingOctants[(int)(v.x * step.x)][(int)(v.y * step.y)]
+                    .Add(new Octant(v.x, v.y, v.z, (int)(v.z * step.z)));
 
-            length = (int)(xMax * step.x) + 1;
-            width = (int)(yMax * step.y) + 1;
-            height = (int)(zMax * step.z) + 1;
+            for (int x = 0; x < startingOctants.Length; x++)
+                for (int y = 0; y < startingOctants[x].Length; y++)
+                    startingOctants[x][y].Sort((a, b) => a.range.CompareTo(b.range));
 
-            dimensions =
-            (
-                "Length: " + length + ", Width: " + width + ", Height: " + height + "\n" +
-                "Maximums: (" + xMax + ", " + yMax + ", " + zMax + ")\n"
-            );
+            return startingOctants;
         }
 
-        private static void GetOctantsZ(List<Octant>[][] octants, List<float>[][] hMapZ, int length, int width)
+        private List<Vector3> GetMeshSurface(int[] triangles, Vector3[] vertices)
         {
-            Octant last;
-            int n, z2, z3;
+            Triangle t;
+            List<Vector3> intersections = new List<Vector3>(vertices.Length);
 
-            for (int x = 0; x < length; x++)
+            for (int n = 0; n < triangles.Length; n += 3)
             {
-                for (int y = 0; y < width; y++)
-                {
-                    n = 1;
-                    last = Octant.zero;
-
-                    for (int z = 0; z < hMapZ[x][y].Count; z++)
-                    {
-                        z2 = (int)(hMapZ[x][y][z] * step.z);
-
-                        if (z2 > last.range)
-                        {
-                            if (n > 1)
-                            {
-                                last.z /= n;
-                                n = 1;
-                            }
-
-                            z3 = GetHeight(octants[x + 1][y + 1], z2);
-
-                            if (z3 == int.MinValue)
-                            {
-                                last = new Octant(x * scale.x, y * scale.y, hMapZ[x][y][z], z2);
-                                octants[x + 1][y + 1].Add(last);
-                            }
-                            else
-                            {
-                                last = octants[x + 1][y + 1][z3];
-                                last.z += hMapZ[x][y][z];
-                                n++;
-                            }
-                        }
-                        else
-                        {
-                            last.z += hMapZ[x][y][z];
-                            n++;
-                        }
-                    }
-
-                    if (n > 1) last.z /= n;
-                }
+                t = new Triangle(triangles, vertices, n, step);
+                t.GetIntersections(intersections);
             }
 
-            for (int x = 1; x < length + 1; x++)
-                for (int y = 1; y < width + 1; y++)
-                    octants[x][y].Sort((a, b) => a.range.CompareTo(b.range));
-        }
-
-        private static void GetOctantsY(List<Octant>[][] octants, List<float>[][] hMapY, int length, int height, int width)
-        {
-            Octant lastPoint;
-            int last, n, z2, y2;
-
-            for (int x = 0; x < length; x++)
-            {
-                for (int z = 0; z < height; z++)
-                {
-                    n = 1; z2 = int.MinValue;
-                    last = int.MinValue; lastPoint = Octant.zero;
-
-                    for (int y = 0; y < hMapY[x][z].Count; y++)
-                    {
-                        y2 = (int)(hMapY[x][z][y] * step.y);
-
-                        if (last < y2)
-                        {
-                            if (n > 1)
-                            {
-                                lastPoint.y /= n;
-                                n = 1;
-                            }
-
-                            last = y2;
-                            z2 = GetHeight(octants[x + 1][y2 + 1], z);
-
-                            if (z2 == int.MinValue)
-                            {
-                                lastPoint = new Octant(x * scale.x, hMapY[x][z][y], z * scale.z, z);
-                                octants[x + 1][y2 + 1].Add(lastPoint);
-                            }
-                            else
-                            {
-                                lastPoint = octants[x + 1][y2 + 1][z2];
-                                lastPoint.y += hMapY[x][z][y];
-                                n++;
-                            }
-                        }
-                        else
-                        {
-                            lastPoint.y += hMapY[x][z][y];
-                            n++;
-                        }
-                    }
-
-                    if (n > 1) lastPoint.y /= n;
-                }
-            }
-
-            for (int x = 1; x < length + 1; x++)
-                for (int y = 1; y < width + 1; y++)
-                    octants[x][y].Sort((a, b) => a.range.CompareTo(b.range));
-        }
-
-        private static void GetOctantsX(List<Octant>[][] octants, List<float>[][] hMapX, int width, int height, int length)
-        {
-            Octant lastPoint;
-            int last, n, x2, z2;
-
-            for (int y = 0; y < width; y++)
-            {
-                for (int z = 0; z < height; z++)
-                {
-                    n = 1; z2 = int.MinValue;
-                    last = int.MinValue; lastPoint = Octant.zero;
-
-                    for (int x = 0; x < hMapX[y][z].Count; x++)
-                    {
-                        x2 = (int)(hMapX[y][z][x] * step.x);
-
-                        if (last < x2)
-                        {
-                            if (n > 1)
-                            {
-                                lastPoint.x /= n;
-                                n = 1;
-                            }
-
-                            last = x2;
-                            z2 = GetHeight(octants[x2 + 1][y + 1], z);
-
-                            if (z2 == int.MinValue)
-                            {
-                                lastPoint = new Octant(hMapX[y][z][x], y * scale.y, z * scale.z, z);
-                                octants[x2 + 1][y + 1].Add(lastPoint);
-                            }
-                            else
-                            {
-                                lastPoint = octants[x2 + 1][y + 1][z2];
-                                lastPoint.x += hMapX[y][z][x];
-                                n++;
-                            }
-                        }
-                        else
-                        {
-                            lastPoint.x += hMapX[y][z][x];
-                            n++;
-                        }
-                    }
-
-                    if (n > 1) lastPoint.x /= n;
-                }
-            }
-
-            for (int x = 1; x < length + 1; x++)
-                for (int y = 1; y < width + 1; y++)
-                    octants[x][y].Sort((a, b) => a.range.CompareTo(b.range));
-        }
-
-        private static bool ContainsRepetition(List<Octant>[][] octants)
-        {
-            int last;
-
-            for (int x = 0; x < octants.Length; x++)
-                for (int y = 0; y < octants[0].Length; y++)
-                {
-                    last = int.MinValue;
-
-                    foreach (Octant z in octants[x][y])
-                        if (z.range > last)
-                            last = z.range;
-                        else
-                            return true;
-                }
-
-            return false;
-        }
-
-        private static int GetHeight(List<Octant> column, int z)
-        {
-            for (int n = 0; n < column.Count; n++)
-                if (column[n].range > z)
-                    return int.MinValue;
-                else if (column[n].range == z)
-                    return n;
-
-            return int.MinValue;
+            return intersections;
         }
 
         private class Triangle
         {
-            public readonly Vector3 a, b, c;
-            public readonly int xMin, xMax, yMin, yMax, zMin, zMax;
+            private static readonly float res = 2f;
+            private Vector3 x, y, z, step;
 
-            public Triangle(int[] triangles, Vector3[] vertices, int n)
+            public Triangle(int[] triangles, Vector3[] vertices, int n, Vector3 _step)
             {
-                a = vertices[triangles[n]];
-                b = vertices[triangles[n + 1]];
-                c = vertices[triangles[n + 2]];
-
-                xMin = (int)(GetMin(a.x, b.x, c.x) * step.x);
-                yMin = (int)(GetMin(a.y, b.y, c.y) * step.y);
-                zMin = (int)(GetMin(a.z, b.z, c.z) * step.z);
-
-                xMax = (int)(GetMax(a.x, b.x, c.x) * step.x);
-                yMax = (int)(GetMax(a.y, b.y, c.y) * step.y);
-                zMax = (int)(GetMax(a.z, b.z, c.z) * step.z);
-            }
-        }
-
-        private static List<float>[][] GetHeightMapZ(int length, int width, int[] triangles, Vector3[] vertices)
-        {
-            float z, x2;
-            List<float>[][] hMapZ = new List<float>[length][];
-            Triangle triangle;
-
-            for (int x = 0; x < length; x++)
-            {
-                hMapZ[x] = new List<float>[width];
-
-                for (int y = 0; y < width; y++)
-                    hMapZ[x][y] = new List<float>();
+                x = vertices[triangles[n]];
+                y = vertices[triangles[n + 1]];
+                z = vertices[triangles[n + 2]];
+                step = _step;
             }
 
-            for (int n = 0; n < triangles.Length; n += 3)
+            public void GetIntersections(List<Vector3> intersections)
             {
-                triangle = new Triangle(triangles, vertices, n);
+                intersections.Add(x);
+                intersections.Add(y);
+                intersections.Add(z);
 
-                for (int x = triangle.xMin; x <= triangle.xMax; x++)
+                Vector3 facingX = new Vector3(
+                    Math.Abs(x.x - y.x) * step.x,
+                    Math.Abs(x.x - z.x) * step.x,
+                    Math.Abs(y.x - z.x) * step.x) * res,
+                facingY = new Vector3(
+                    Math.Abs(x.y - y.y) * step.y,
+                    Math.Abs(x.y - z.y) * step.y,
+                    Math.Abs(y.y - z.y) * step.y) * res,
+                facingZ = new Vector3(
+                    Math.Abs(x.z - y.z) * step.z,
+                    Math.Abs(x.z - z.z) * step.z,
+                    Math.Abs(y.z - z.z) * step.z) * res,
+                startX = new Vector3(
+                    1f - (int)(facingX.x) / facingX.x,
+                    1f - (int)(facingX.y) / facingX.y,
+                    1f - (int)(facingX.z) / facingX.z),
+                startY = new Vector3(
+                    1f - (int)(facingY.x) / facingY.x,
+                    1f - (int)(facingY.y) / facingY.y,
+                    1f - (int)(facingY.z) / facingY.z),
+                startZ = new Vector3(
+                    1f - (int)(facingZ.x) / facingZ.x,
+                    1f - (int)(facingZ.y) / facingZ.y,
+                    1f - (int)(facingZ.z) / facingZ.z);
+
+                GetPerspectives(intersections, facingX, startX);
+                GetPerspectives(intersections, facingY, startY);
+                GetPerspectives(intersections, facingZ, startZ);
+            }
+
+            private void GetPerspectives(List<Vector3> intersections, Vector3 facing, Vector3 start)
+            {
+                GetEdgeIntersections(intersections, x, y, z, facing.x, facing.y, start.x, start.y);
+                GetEdgeIntersections(intersections, y, x, z, facing.x, facing.z, start.x, start.z); 
+                GetEdgeIntersections(intersections, z, x, y, facing.y, facing.z, start.y, start.z);
+            }
+
+            private void GetEdgeIntersections(List<Vector3> intersections, Vector3 x, Vector3 y, Vector3 z, float end1, float end2, float start1, float start2)
+            {
+                float left = start1, right = start2;
+                Vector3 edge1 = x, edge2 = x, middleEdge;
+
+                for (float n = 0; (left < 1f && right < 1f); n++)
                 {
-                    x2 = x * scale.x;
+                    edge1 = x + ((y - x) * left);
+                    intersections.Add(edge1);
+                    left = start1 + n / end1;
 
-                    for (int y = triangle.yMin; y <= triangle.yMax; y++)
-                    {
-                        z = GetHeightZ(triangle, x2, y * scale.y);
+                    edge2 = x + ((z - x) * right);
+                    intersections.Add(edge2);
+                    right = start2 + n / end2;
 
-                        if (z != float.MinValue && z >= 0 && z <= maximums.z)
-                            hMapZ[x][y].Add(z);
-                    }
+                    middleEdge = new Vector3(
+                        Math.Abs(edge1.x - edge2.x) * step.x, 
+                        Math.Abs(edge1.y - edge2.y) * step.y, 
+                        Math.Abs(edge1.z - edge2.z) * step.z) * res;
+
+                    GetMidIntersections(intersections, edge1, edge2, middleEdge.x, 1f - (int)(middleEdge.x) / middleEdge.x);
+                    GetMidIntersections(intersections, edge1, edge2, middleEdge.y, 1f - (int)(middleEdge.y) / middleEdge.y);
+                    GetMidIntersections(intersections, edge1, edge2, middleEdge.z, 1f - (int)(middleEdge.z) / middleEdge.z);
                 }
             }
 
-            for (int x = 0; x < length; x++)
-                for (int y = 0; y < width; y++)
-                    hMapZ[x][y].Sort((a, b) => a.CompareTo(b));
-
-            return hMapZ;
-        }
-
-        private static List<float>[][] GetHeightMapY(int length, int height, int[] triangles, Vector3[] vertices)
-        {
-            float y, x2;
-            List<float>[][] hMapY = new List<float>[length][];
-            Triangle triangle;
-
-            for (int x = 0; x < length; x++)
+            private static void GetMidIntersections(List<Vector3> intersections, Vector3 x, Vector3 y, float end, float start)
             {
-                hMapY[x] = new List<float>[height];
+                float t = start;
+                Vector3 midpoint = new Vector3();
 
-                for (int z = 0; z < height; z++)
-                    hMapY[x][z] = new List<float>();
-            }
-
-            for (int n = 0; n < triangles.Length; n += 3)
-            {
-                triangle = new Triangle(triangles, vertices, n);
-
-                for (int x = triangle.xMin; x <= triangle.xMax; x++)
+                for (float n = 0; t < 1f; n++)
                 {
-                    x2 = x * scale.x;
-
-                    for (int z = triangle.zMin; z <= triangle.zMax; z++)
-                    {
-                        y = GetHeightY(triangle, x2, z * scale.z);
-
-                        if (y != float.MinValue && y >= 0 && y <= maximums.y)
-                            hMapY[x][z].Add(y);
-                    }
+                    midpoint = x + ((y - x) * t);
+                    intersections.Add(midpoint);
+                    t = start + n / end;
                 }
             }
-
-            for (int x = 0; x < length; x++)
-                for (int z = 0; z < height; z++)
-                    hMapY[x][z].Sort((a, b) => a.CompareTo(b));
-
-            return hMapY;
-        }
-
-        private static List<float>[][] GetHeightMapX(int width, int height, int[] triangles, Vector3[] vertices)
-        {
-            float x, y2;
-            List<float>[][] hMapX = new List<float>[width][];
-            Triangle triangle;
-
-            for (int y = 0; y < width; y++)
-            {
-                hMapX[y] = new List<float>[height];
-
-                for (int z = 0; z < height; z++)
-                    hMapX[y][z] = new List<float>();
-            }
-
-            for (int n = 0; n < triangles.Length; n += 3)
-            {
-                triangle = new Triangle(triangles, vertices, n);
-
-                for (int y = triangle.yMin; y <= triangle.yMax; y++)
-                {
-                    y2 = y * scale.y;
-
-                    for (int z = triangle.zMin; z <= triangle.zMax; z++)
-                    {
-                        x = GetHeightX(triangle, y2, z * scale.z);
-
-                        if (x != float.MinValue && x >= 0 && x <= maximums.x)
-                            hMapX[y][z].Add(x);
-                    }
-                }
-            }
-
-            for (int y = 0; y < width; y++)
-                for (int z = 0; z < height; z++)
-                    hMapX[y][z].Sort((a, b) => a.CompareTo(b));
-
-            return hMapX;
-        }
-
-        private static float GetHeightZ(Triangle t, float x, float y)
-        {
-            float w1, w2;
-
-            w1 = ((x - t.a.x) * (t.c.y - t.a.y) - (y - t.a.y) * (t.c.x - t.a.x))
-                / ((t.b.x - t.a.x) * (t.c.y - t.a.y) - (t.b.y - t.a.y) * (t.c.x - t.a.x));
-            w2 = ((y - t.a.y) - w1 * (t.b.y - t.a.y)) / (t.c.y - t.a.y);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.a.z + w1 * (t.b.z - t.a.z) + w2 * (t.c.z - t.a.z);
-
-            w1 = ((x - t.c.x) * (t.b.y - t.c.y) - (y - t.c.y) * (t.b.x - t.c.x))
-                / ((t.a.x - t.c.x) * (t.b.y - t.c.y) - (t.a.y - t.c.y) * (t.b.x - t.c.x));
-            w2 = ((y - t.c.y) - w1 * (t.a.y - t.c.y)) / (t.b.y - t.c.y);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.c.z + w1 * (t.a.z - t.c.z) + w2 * (t.b.z - t.c.z);
-
-            w1 = ((x - t.b.x) * (t.a.y - t.b.y) - (y - t.b.y) * (t.a.x - t.b.x))
-                / ((t.c.x - t.b.x) * (t.a.y - t.b.y) - (t.c.y - t.b.y) * (t.a.x - t.b.x));
-            w2 = ((y - t.b.y) - w1 * (t.c.y - t.b.y)) / (t.a.y - t.b.y);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.b.z + w1 * (t.c.z - t.b.z) + w2 * (t.a.z - t.b.z);
-
-            return float.MinValue;
-        }
-
-        private static float GetHeightY(Triangle t, float x, float z)
-        {
-            float w1, w2, y;
-
-            w1 = ((x - t.a.x) * (t.c.z - t.a.z) - (z - t.a.z) * (t.c.x - t.a.x))
-                / ((t.b.x - t.a.x) * (t.c.z - t.a.z) - (t.b.z - t.a.z) * (t.c.x - t.a.x));
-            w2 = ((z - t.a.z) - w1 * (t.b.z - t.a.z)) / (t.c.z - t.a.z);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.a.y + w1 * (t.b.y - t.a.y) + w2 * (t.c.y - t.a.y);
-
-            w1 = ((x - t.c.x) * (t.b.z - t.c.z) - (z - t.c.z) * (t.b.x - t.c.x))
-                / ((t.a.x - t.c.x) * (t.b.z - t.c.z) - (t.a.z - t.c.z) * (t.b.x - t.c.x));
-            w2 = ((z - t.c.z) - w1 * (t.a.z - t.c.z)) / (t.b.z - t.c.z);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.c.y + w1 * (t.a.y - t.c.y) + w2 * (t.b.y - t.c.y);
-
-            w1 = ((x - t.b.x) * (t.a.z - t.b.z) - (z - t.b.z) * (t.a.x - t.b.x))
-                / ((t.c.x - t.b.x) * (t.a.z - t.b.z) - (t.c.z - t.b.z) * (t.a.x - t.b.x));
-            w2 = ((z - t.b.z) - w1 * (t.c.z - t.b.z)) / (t.a.z - t.b.z);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.b.y + w1 * (t.c.y - t.b.y) + w2 * (t.a.y - t.b.y);
-
-            return float.MinValue;
-        }
-
-        private static float GetHeightX(Triangle t, float y, float z)
-        {
-            float w1, w2;
-
-            w1 = ((z - t.a.z) * (t.c.y - t.a.y) - (y - t.a.y) * (t.c.z - t.a.z))
-                / ((t.b.z - t.a.z) * (t.c.y - t.a.y) - (t.b.y - t.a.y) * (t.c.z - t.a.z));
-            w2 = ((y - t.a.y) - w1 * (t.b.y - t.a.y)) / (t.c.y - t.a.y);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.a.x + w1 * (t.b.x - t.a.x) + w2 * (t.c.x - t.a.x);
-
-            w1 = ((z - t.c.z) * (t.b.y - t.c.y) - (y - t.c.y) * (t.b.z - t.c.z))
-                / ((t.a.z - t.c.z) * (t.b.y - t.c.y) - (t.a.y - t.c.y) * (t.b.z - t.c.z));
-            w2 = ((y - t.c.y) - w1 * (t.a.y - t.c.y)) / (t.b.y - t.c.y);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.c.x + w1 * (t.a.x - t.c.x) + w2 * (t.b.x - t.c.x);
-
-            w1 = ((z - t.b.z) * (t.a.y - t.b.y) - (y - t.b.y) * (t.a.z - t.b.z))
-                / ((t.c.z - t.b.z) * (t.a.y - t.b.y) - (t.c.y - t.b.y) * (t.a.z - t.b.z));
-            w2 = ((y - t.b.y) - w1 * (t.c.y - t.b.y)) / (t.a.y - t.b.y);
-
-            if ((w1 >= 0f && w1 <= 1f) && (w2 >= 0f && w2 <= 1f))
-                return t.b.x + w1 * (t.c.x - t.b.x) + w2 * (t.a.x - t.b.x);
-
-            return float.MinValue;
         }
     }
 }
