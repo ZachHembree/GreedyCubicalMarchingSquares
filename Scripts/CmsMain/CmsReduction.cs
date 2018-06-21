@@ -268,7 +268,7 @@ namespace CmsMain
         }
 
         /// <summary>
-        /// Transposes the references of two supplied variables with one another.
+        /// Transposes the values of two supplied variables with one another.
         /// </summary>
         private static void SwapValues<T>(ref T a, ref T b)
         {
