@@ -3,7 +3,7 @@ This is an implimentation of the Cubical Marching Squares algorithm for use with
 
 
 ## Usage
-In order to use this, you'll need to create an instance of one of the classes inheriting from GreedyCms.Volume, HeightMapVolume or MeshVolume, with the correct input, a IList<float>[][] height map or a UnityEngine.Mesh respectively, and use that to create an instance of the GreedyCms.Surface class and call GetMeshData to get the information needed to instantiate a new mesh.
+In order to use this, you'll need to create an instance of one of the classes inheriting from GreedyCms.Volume, HeightMapVolume or MeshVolume, with the correct input, an IList<float>[][] heightmap or a UnityEngine.Mesh respectively, and use that to create an instance of the GreedyCms.Surface class and call GetMeshData to get the information needed to instantiate a new mesh.
 
 
 ![Image of unreduced cabinet mesh](https://i.imgur.com/OrYfzpG.jpg)
