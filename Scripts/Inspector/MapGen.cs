@@ -1,6 +1,5 @@
 ﻿using UnityEngine;
-using UnityEditor;
-using CmsNext;
+using GreedyCms;
 using System.Diagnostics;
 using System.Collections.Generic;
 
@@ -13,7 +12,7 @@ public class MapGen : MonoBehaviour
 
     private MeshFilter meshFilter;
     private IList<float>[][] map;
-    public string display { get; private set; }
+    public string Display { get; private set; }
 
     public void Start()
     {
@@ -37,24 +36,25 @@ public class MapGen : MonoBehaviour
             meshFilter = GetComponent<MeshFilter>();
 
             timer.Start();
-            Volume volume = new Volume();
-            MeshData meshData = volume.VoxelizeHeightmap(map, octantSize, simplifyMesh);
-            meshFilter.sharedMesh = meshData.GetMesh();
-            timer.Stop();
+            HeightMapVolume volume = new HeightMapVolume(map, octantSize);
+            Surface surface = new Surface(volume, simplifyMesh);
+            surface.GetMeshData();
 
+            meshFilter.sharedMesh = surface.MeshData.GetMesh();
             meshFilter.sharedMesh.RecalculateNormals();
+            timer.Stop();
 
             string vtxSpeed = timer.ElapsedMilliseconds > 0f ? "" + (meshFilter.sharedMesh.vertexCount / timer.ElapsedMilliseconds) : "inf",
                 triSpeed = timer.ElapsedMilliseconds > 0f ? "" + (meshFilter.sharedMesh.triangles.Length / 3 / timer.ElapsedMilliseconds) : "inf";
 
-            display =
+            Display =
             (
-                "Dimensions: (" + volume.dimensions.x + ", " + volume.dimensions.y + ", " + volume.dimensions.z + ")\n" +
-                "Scale: (" + volume.scale.x + ", " + volume.scale.y + ", " + volume.scale.z + ")\n" +
+                "Dimensions: (" + volume.Dimensions.x + ", " + volume.Dimensions.y + ", " + volume.Dimensions.z + ")\n" +
+                "Scale: (" + volume.Scale.x + ", " + volume.Scale.y + ", " + volume.Scale.z + ")\n" +
                 "Verticies: " + meshFilter.sharedMesh.vertexCount + " (" + vtxSpeed + " verts/ms)\n" +
                 "Triangles: " + (meshFilter.sharedMesh.triangles.Length / 3) + " (" + triSpeed + " tris/ms)\n\n" +
-                "Import Time: " + volume.lastImportTime + "ms\n" +
-                "Voxel Time: " + volume.lastVoxelTime + "ms\n" +
+                "Import Time: " + volume.LastImportTime + "ms\n" +
+                "Voxel Time: " + surface.LastVoxelTime + "ms\n" +
                 "Total Time: " + timer.ElapsedMilliseconds + "ms\n"
             );
         }

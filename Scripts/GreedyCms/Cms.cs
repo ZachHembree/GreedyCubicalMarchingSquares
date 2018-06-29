@@ -1,30 +1,35 @@
 ﻿using System;
-using System.Threading;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CmsMain
+namespace GreedyCms
 {
-    public partial class Volume
+    public partial class Surface
     {
-        public float lastVoxelTime { get; private set; }
-        public float lastImportTime { get; private set; }
-        public Vector3 scale { get; private set; }
-        public Vector3 delta { get; private set; }
-        public Vector3 step { get; private set; }
-        public Vector3 max { get; private set; } 
-        public Vector3Int dimensions { get; private set; }
+        public float LastVoxelTime { get; private set; }
+        public MeshData MeshData { get; private set; }
+        public bool reduce;
+        public Volume volume;
 
         private static readonly int[] cubeDirs = new int[] { 1, 1, 0, 0 }, planeDirs = new int[] { 2, 3, 0, 1 };
         private static readonly int[][] edgeDirs = new int[][] { new int[] { 3, 2, 3, 2 }, new int[] { 1, 0, 1, 0 } };
 
-        public MeshData ContourMesh(IList<Octant>[][] octants, bool reduce = false) // , bool expand = false
+        public Surface(Volume _volume = null, bool _reduce = false)
+        {
+            volume = _volume;
+            reduce = _reduce;
+        }
+
+        /// <summary>
+        /// Generates an approximation of the surface of a volume represented by a 3D array of sample points.
+        /// </summary>
+        public void GetMeshData()
         {
             System.Diagnostics.Stopwatch voxelTimer = new System.Diagnostics.Stopwatch();
             voxelTimer.Start();
 
             List<Vector3> vertices, redVertices;
-            List<Edge>[][][] edges = GetEdges(octants, out vertices);
+            List<Edge>[][][] edges = GetEdges(out vertices);
             List<Segment> segments = GetSegments(edges);
             List<int> triangles;
 
@@ -34,17 +39,16 @@ namespace CmsMain
                 vertices = redVertices;
             }
             else
-                triangles = GetMesh(vertices, segments);
+                triangles = GetTriangles(vertices, segments);
 
+            MeshData = new MeshData(vertices, triangles);
             voxelTimer.Stop();
-            lastVoxelTime = voxelTimer.ElapsedMilliseconds;
-
-            return new MeshData(vertices, triangles);
+            LastVoxelTime = voxelTimer.ElapsedMilliseconds;
         }
 
-        private List<Edge>[][][] GetEdges(IList<Octant>[][] octants, out List<Vector3> vertices) 
+        private List<Edge>[][][] GetEdges(out List<Vector3> vertices) 
         {
-            int length = octants.Length, width = octants[1].Length;
+            int length = volume.Octants.Length, width = volume.Octants[1].Length;
             List<Edge>[][][] edges = new List<Edge>[3][][]
             { new List<Edge>[length][], new List<Edge>[length][], new List<Edge>[length][] };
             vertices = new List<Vector3>((length * width * 6) + (length * width / 2));
@@ -70,9 +74,9 @@ namespace CmsMain
             for (int x = 0; x < length - 1; x++)
                 for (int y = 0; y < width - 1; y++)
                 {
-                    edges[0][x][y] = GetEdgeColumnX(vertices, octants[x][y], octants[x + 1][y]);
-                    edges[1][x][y] = GetEdgeColumnY(vertices, octants[x][y], octants[x][y + 1]);
-                    edges[2][x][y] = GetEdgeColumnZ(vertices, octants[x][y]);
+                    edges[0][x][y] = GetEdgeColumnX(vertices, volume.Octants[x][y], volume.Octants[x + 1][y]);
+                    edges[1][x][y] = GetEdgeColumnY(vertices, volume.Octants[x][y], volume.Octants[x][y + 1]);
+                    edges[2][x][y] = GetEdgeColumnZ(vertices, volume.Octants[x][y]);
                 }
 
             return edges;
@@ -91,13 +95,13 @@ namespace CmsMain
                 if (s1 < s2)
                 {
                     edges.Add(new Edge(s1, vertices.Count, 1));
-                    vertices.Add(new Vector3((x1[n1].x + delta.x), x1[n1].y, x1[n1].z));
+                    vertices.Add(new Vector3((x1[n1].x + volume.Delta.x), x1[n1].y, x1[n1].z));
                     n1++;
                 }
                 else if (s1 > s2)
                 {
                     edges.Add(new Edge(s2, vertices.Count, 2));
-                    vertices.Add(new Vector3((x2[n2].x - delta.x), x2[n2].y, x2[n2].z));
+                    vertices.Add(new Vector3((x2[n2].x - volume.Delta.x), x2[n2].y, x2[n2].z));
                     n2++;
                 }
                 else
@@ -123,13 +127,13 @@ namespace CmsMain
                 if (s1 < s2)
                 {
                     edges.Add(new Edge(s1, vertices.Count, 1));
-                    vertices.Add(new Vector3(y1[n1].x, (y1[n1].y + delta.y), y1[n1].z));
+                    vertices.Add(new Vector3(y1[n1].x, (y1[n1].y + volume.Delta.y), y1[n1].z));
                     n1++;
                 }
                 else if (s1 > s2)
                 {
                     edges.Add(new Edge(s2, vertices.Count, 2));
-                    vertices.Add(new Vector3(y2[n2].x, (y2[n2].y - delta.y), y2[n2].z));
+                    vertices.Add(new Vector3(y2[n2].x, (y2[n2].y - volume.Delta.y), y2[n2].z));
                     n2++;
                 }
                 else
@@ -154,13 +158,13 @@ namespace CmsMain
                 if (n == 0 || (z[n - 1].range != start - 1))
                 {
                     edges.Add(new Edge(start - 1, vertices.Count, 2));
-                    vertices.Add(new Vector3(z[n].x, z[n].y, (z[n].z - delta.z)));
+                    vertices.Add(new Vector3(z[n].x, z[n].y, (z[n].z - volume.Delta.z)));
                 }
 
                 if ((n + 1 == z.Count) || (z[n + 1].range != start + 1))
                 {
                     edges.Add(new Edge(start, vertices.Count, 1));
-                    vertices.Add(new Vector3(z[n].x, z[n].y, z[n].z + delta.z));
+                    vertices.Add(new Vector3(z[n].x, z[n].y, z[n].z + volume.Delta.z));
                 }
                 else
                     edges.Add(new Edge(start, -1, 3));
@@ -342,7 +346,7 @@ namespace CmsMain
             }
         }
 
-        private static List<int> GetMesh(List<Vector3> vertices, List<Segment> segments)
+        private static List<int> GetTriangles(List<Vector3> vertices, List<Segment> segments)
         {
             List<int> indices = new List<int>(12), triangles = new List<int>(vertices.Count * 9);
 

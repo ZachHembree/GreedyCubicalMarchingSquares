@@ -1,11 +1,10 @@
 ﻿using System;
-using System.Threading;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CmsMain
+namespace GreedyCms
 {
-    public partial class Volume
+    public partial class Surface
     {
         /// <summary>
         /// Creates a finished and simplified mesh from the provided segments and vertices.
@@ -202,7 +201,7 @@ namespace CmsMain
                 int max, count = 0, dirChanges = 0, maxChanges;
 
                 start.GetNextFace();
-                length = (start.Seg.diagonal == end.Seg.diagonal && length > 2) ? 2 : length - 1;
+                length = (start.Seg.diagonal && end.Seg.diagonal && length > 2) ? 2 : length - 1;
                 max = length;
                 maxChanges = end.Seg.comp == start.Seg.comp ? 2 : 1;
 
@@ -241,7 +240,7 @@ namespace CmsMain
 
             edges[1].Add(start.Next.edge);
             start.GetNextFace();
-            length = (start.Seg.diagonal == end.Seg.diagonal && length > 2) ? 2 : length - 1;
+            length = (start.Seg.diagonal && end.Seg.diagonal && length > 2) ? 2 : length - 1;
             max = length;
             sides.Add(start);
 

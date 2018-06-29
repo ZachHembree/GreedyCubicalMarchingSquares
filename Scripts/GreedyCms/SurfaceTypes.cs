@@ -1,20 +1,22 @@
 ﻿using System;
-using System.Threading;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CmsMain
+namespace GreedyCms
 {
     /// <summary>
     /// Stores vertex and triangle information necessary to create a new mesh.
     /// </summary>
     public class MeshData
     {
+        public readonly int vertexCount, triCount;
         private readonly Vector3[] vertices;
         private readonly int[] triangles;
 
         public MeshData(IList<Vector3> _vertices, IList<int> _triangles)
         {
+            vertexCount = _vertices.Count;
+            triCount = _triangles.Count / 3;
             vertices = new Vector3[_vertices.Count];
             triangles = new int[_triangles.Count];
             _vertices.CopyTo(vertices, 0);
@@ -22,8 +24,7 @@ namespace CmsMain
         }
 
         /// <summary>
-        /// Instantiates a new mesh using the vertex and triangle data used to instantiate the MeshData
-        /// object. This method can only be called from the main thread.
+        /// Instantiates a new UnityEngine.Mesh. This method can only be called from the main thread.
         /// </summary>
         public Mesh GetMesh()
         {
@@ -35,77 +36,7 @@ namespace CmsMain
         }
     }
 
-    /// <summary>
-    /// Defines the intersection between a surface and a volume of a given size.
-    /// </summary>
-    public class Octant
-    {
-        public static readonly Octant zero = new Octant(0, 0, 0, int.MinValue);
-        public readonly int range;
-        public float x, y, z;
-
-        public Octant(float _x, float _y, float _z, int _range)
-        {
-            x = _x;
-            y = _y;
-            z = _z;
-            range = _range;
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (obj == null || GetType() != obj.GetType())
-                return false;
-
-            Octant b = (Octant)obj;
-
-            return (b.range == range && x == b.x && y == b.y && z == b.z);
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 23 + range.GetHashCode();
-                hash = hash * 23 + x.GetHashCode();
-                hash = hash * 23 + y.GetHashCode();
-                hash = hash * 23 + z.GetHashCode();
-
-                return hash;
-            }
-        }
-
-        public static Octant operator +(Octant a, Octant b)
-        {
-            if (a.range == b.range)
-                return new Octant(a.x + b.x, a.y + b.y, a.z + b.z, a.range);
-            else
-                throw new Exception("Cannot perform addition on Octants with different ranges.");
-        }
-
-        public static Octant operator -(Octant a, Octant b)
-        {
-            if (a.range == b.range)
-                return new Octant(a.x - b.x, a.y - b.y, a.z - b.z, a.range);
-            else
-                throw new Exception("Cannot perform subtraction on Octants with different ranges.");
-        }
-
-        public static Octant operator *(Octant a, float b) =>
-            new Octant(a.x * b, a.y * b, a.z * b, a.range);
-
-        public static Octant operator *(Octant a, int b) =>
-            new Octant(a.x * b, a.y * b, a.z * b, a.range);
-
-        public static Octant operator /(Octant a, float b) =>
-            new Octant(a.x / b, a.y / b, a.z / b, a.range);
-
-        public static Octant operator /(Octant a, int b) =>
-            new Octant(a.x / b, a.y / b, a.z / b, a.range);
-    }
-
-    public partial class Volume
+    public partial class Surface
     {
         /// <summary>
         /// Defines the direction of the edge of intersecting Segments and stores the
@@ -154,13 +85,13 @@ namespace CmsMain
             public readonly DirEdge start, end;
             public readonly bool diagonal;
             public readonly int comp;
-            public int used;
+            public int Used { get; private set; }
 
             public Segment(DirEdge _start, DirEdge _end)
             {
                 start = _start;
                 end = _end;
-                used = -1;
+                Used = -1;
 
                 if (start != null && end != null)
                 {
@@ -172,7 +103,7 @@ namespace CmsMain
             }
 
             public bool IsUsed(int dir) =>
-                (used == -2 || used == dir);
+                (Used == -2 || Used == dir);
 
             public DirEdge GetOppositeEdge(Edge edge)
             {
@@ -186,15 +117,15 @@ namespace CmsMain
 
             public DirEdge TryGetOppositeEdge(int sideUsed, Edge next)
             {
-                if (used != -2 && used != sideUsed)
+                if (Used != -2 && Used != sideUsed)
                     if (start.edge == next)
                     {
-                        used = used == -1 ? sideUsed : -2;
+                        Used = Used == -1 ? sideUsed : -2;
                         return end;
                     }
                     else if (end.edge == next)
                     {
-                        used = used == -1 ? sideUsed : -2;
+                        Used = Used == -1 ? sideUsed : -2;
                         return start;
                     }
 

@@ -61,7 +61,7 @@ public class BenchUI : MonoBehaviour
                     "Summary:"
                     + "\nScore: " + bench.Score
                     + "\nReduction Score: " + bench.RedScore
-                    + "\nElapsed Time: " + (bench.Time + bench.RedTime) + "ms";
+                    + "\nElapsed Time: " + (bench.RunTime + bench.RedRunTime) + "ms";
             }
 
             complete = true;

@@ -11,16 +11,10 @@ public class MapGenUI : MonoBehaviour
     public Button meshGenButton;
 
     private MapGen mapGen;
-    private MeshRenderer meshRenderer;
-    private Transform meshTransform;
 
     public void Start ()
     {
         mapGen = volumeGenerator.GetComponent<MapGen>();
-        meshRenderer = volumeGenerator.GetComponent<MeshRenderer>();
-        meshTransform = volumeGenerator.GetComponent<Transform>();
-
-        meshRenderer.enabled = false;
         mapGen.octantSize = new Vector3(.5f, .5f, .5f);
 
         meshGenButton.onClick.AddListener(delegate { GenerateMesh(); });
@@ -28,13 +22,11 @@ public class MapGenUI : MonoBehaviour
 
     private void GenerateMesh()
     {
-        meshRenderer.enabled = true;
-
         GenerateMap();
         UpdateTransform();
         mapGen.GetMesh();
 
-        display.text = mapGen.display;
+        display.text = mapGen.Display;
     }
 
     private void GenerateMap()
@@ -48,7 +40,7 @@ public class MapGenUI : MonoBehaviour
         else if (mapSizeSelector.value == 3)
         { mapGen.dimensions.x = 96; mapGen.dimensions.y = 96; mapGen.dimensions.z = 96; }
 
-        meshTransform.eulerAngles = Vector3.zero;
+        //meshTransform.eulerAngles = Vector3.zero;
         mapGen.cohesion = true;
         mapGen.useRandom = true;
         mapGen.GetMap();
@@ -56,13 +48,13 @@ public class MapGenUI : MonoBehaviour
 
     private void UpdateTransform()
     {
-        if (mapSizeSelector.value == 0)
+        /*if (mapSizeSelector.value == 0)
             meshTransform.position = new Vector3(3.11f, 3.51f, -11.21f);
         else if (mapSizeSelector.value == 1)
             meshTransform.position = new Vector3(2.78f, -4.57f, -10.39f);
         else if (mapSizeSelector.value == 2)
             meshTransform.position = new Vector3(1.68f, -19.01f, -15.73f);
         else if (mapSizeSelector.value == 3)
-            meshTransform.position = new Vector3(0f, -32.91f, -22.24f);
+            meshTransform.position = new Vector3(0f, -32.91f, -22.24f);*/
     }
 }

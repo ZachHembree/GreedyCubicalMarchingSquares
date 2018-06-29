@@ -42,25 +42,25 @@ public class ImporterUI : MonoBehaviour
     {
         if (meshSelector.value == 0)
         {
-            importer.inputMesh = importer.meshes[0];
+            importer.inputMesh = importer.Meshes[0];
             meshTransform.position = new Vector3(3.58f, 11.44f, -11.17f);
             meshTransform.eulerAngles = Vector3.zero;
         }
         else if (meshSelector.value == 1)
         {
-            importer.inputMesh = importer.meshes[1];
+            importer.inputMesh = importer.Meshes[1];
             meshTransform.position = new Vector3(3.66f, 10.29f, -10.79f);
             meshTransform.eulerAngles = Vector3.zero;
         }
         else if (meshSelector.value == 2)
         {
-            importer.inputMesh = importer.meshes[2];
+            importer.inputMesh = importer.Meshes[2];
             meshTransform.position = new Vector3(3.94f, 4.88f, -3.07f);
             meshTransform.eulerAngles = new Vector3(0f, 120f, 0f);
         }
         else if (meshSelector.value == 3)
         {
-            importer.inputMesh = importer.meshes[3];
+            importer.inputMesh = importer.Meshes[3];
             meshTransform.position = new Vector3(3.3f, -165.69f, 129f);
             meshTransform.eulerAngles = Vector3.zero;
         }
@@ -72,7 +72,7 @@ public class ImporterUI : MonoBehaviour
         UpdateMesh();
 
         meshRenderer.enabled = true;
-        importer.ImportMesh();
-        display.text = importer.display;
+        importer.GetMesh();
+        display.text = importer.Display;
     }
 }

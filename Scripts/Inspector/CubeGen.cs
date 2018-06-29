@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System;
 using UnityEngine;
-using CmsNext;
+using GreedyCms;
 
 [ExecuteInEditMode]
 public class CubeGen : MonoBehaviour
@@ -10,7 +10,7 @@ public class CubeGen : MonoBehaviour
     public bool simplifyMesh, a, b, c, d, e, f, g, h;
     public Vector3 octantSize;
 
-    public string display { get; private set; }
+    public string Display { get; private set; }
     private MeshFilter meshFilter;
     private float lastOffset = 0.0f;
     private int count = 0;
@@ -26,14 +26,15 @@ public class CubeGen : MonoBehaviour
 
     public void GetMesh()
     {
-        Volume volume = new Volume();
-        MeshData meshData = volume.VoxelizeHeightmap(GetHeightMap(), octantSize, simplifyMesh);
+        HeightMapVolume volume = new HeightMapVolume(GetHeightMap(), octantSize);
+        Surface surface = new Surface(volume, simplifyMesh);
+        surface.GetMeshData();
 
         meshFilter = GetComponent<MeshFilter>();
-        meshFilter.sharedMesh = meshData.GetMesh();
+        meshFilter.sharedMesh = surface.MeshData.GetMesh();
         meshFilter.sharedMesh.RecalculateNormals();
 
-        display =
+        Display =
             "Verticies: " + meshFilter.sharedMesh.vertexCount + "\n" +
             "Triangles: " + (meshFilter.sharedMesh.triangles.Length / 3) + "\n";
     }

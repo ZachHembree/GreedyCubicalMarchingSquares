@@ -1,50 +1,31 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CmsMain
+namespace GreedyCms
 {
-    public partial class Volume
+    public class MeshVolume : Volume
     {
-        public MeshData VoxelizeMesh(Mesh inputMesh, Vector3 res, bool reduce = false, bool expand = false)
+        public MeshVolume(Mesh inputMesh, Vector3 res)
         {
             System.Diagnostics.Stopwatch importTimer = new System.Diagnostics.Stopwatch();
             importTimer.Start();
 
-            if (res.x <= 0f || res.y <= 0f || res.z <= 0f) res = Vector3.one;
             int[] inTris = inputMesh.triangles;
             Vector3[] inVerts = inputMesh.vertices;
 
-            scale = GetScale(inVerts, inTris, res);
-            step = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
-            delta = new Vector3(scale.x / 2f, scale.y / 2f, scale.z / 2f);
-            List<Octant>[][] octants = GetOctants(inTris, inVerts);
-
-            importTimer.Stop();
-            lastImportTime = importTimer.ElapsedMilliseconds;
-
-            return ContourMesh(octants, reduce);
-        }
-
-        public List<Octant>[][] GetMeshOctants(Mesh inputMesh, Vector3 res)
-        {
-            System.Diagnostics.Stopwatch importTimer = new System.Diagnostics.Stopwatch();
-            importTimer.Start();
-
             if (res.x <= 0f || res.y <= 0f || res.z <= 0f) res = Vector3.one;
-            int[] inTris = inputMesh.triangles;
-            Vector3[] inVerts = inputMesh.vertices;
+            Scale = GetScale(inVerts, inTris, res);
+            Step = new Vector3(1f / Scale.x, 1f / Scale.y, 1f / Scale.z);
+            Delta = new Vector3(Scale.x / 2f, Scale.y / 2f, Scale.z / 2f);
+            Dimensions = GetDimensions(inVerts);
 
-            scale = GetScale(inVerts, inTris, res);
-            step = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
-            delta = new Vector3(scale.x / 2f, scale.y / 2f, scale.z / 2f);
-            List<Octant>[][] octants = GetOctants(inTris, inVerts);
+            List<Vector3> surface = GetMeshSurface(inTris, inVerts);
+            List<Octant>[][] startingOctants = GetStartingOctants(surface, Dimensions);
+            base.GetFinalOctants(startingOctants);
 
             importTimer.Stop();
-            lastImportTime = importTimer.ElapsedMilliseconds;
-
-            return octants;
+            LastImportTime = importTimer.ElapsedMilliseconds;
         }
 
         private static Vector3 GetScale(Vector3[] v, int[] t, Vector3 res)
@@ -88,60 +69,6 @@ namespace CmsMain
             return max;
         }
 
-        private List<Octant>[][] GetOctants(int[] triangles, Vector3[] vertices)
-        {
-            dimensions = GetDimensions(vertices);
-            List<Vector3> surface = GetMeshSurface(triangles, vertices);
-            List<Octant>[][] startingOctants = GetStartingOctants(surface, dimensions),
-                octants = new List<Octant>[dimensions.x + 2][];
-
-            for (int x = 0; x < octants.Length; x++)
-                octants[x] = new List<Octant>[dimensions.y + 2];
-
-            for (int x = 0; x < octants.Length; x++)
-            {
-                octants[x][0] = new List<Octant>(0);
-                octants[x][dimensions.y + 1] = new List<Octant>(0);
-            }
-
-            for (int y = 1; y < octants[0].Length - 1; y++)
-            {
-                octants[0][y] = new List<Octant>(0);
-                octants[dimensions.x + 1][y] = new List<Octant>(0);
-            }
-
-            int last, avgCount;
-            Octant current = null;
-
-            for (int x = 0; x < dimensions.x; x++)
-                for (int y = 0; y < dimensions.y; y++)
-                {
-                    last = int.MinValue;
-                    avgCount = 1;
-                    octants[x + 1][y + 1] = new List<Octant>((startingOctants[x][y].Count / 3) + 2);
-
-                    foreach (Octant o in startingOctants[x][y])
-                    {
-                        if (last < o.range)
-                        {
-                            if (avgCount > 1)
-                                current /= avgCount;
-
-                            current = o;
-                            last = current.range;
-                            octants[x + 1][y + 1].Add(current);
-                        }
-                        else
-                        {
-                            current += o;
-                            avgCount++;
-                        }
-                    }
-                }
-
-            return octants;
-        }
-
         private Vector3Int GetDimensions(Vector3[] vertices)
         {
             Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue),
@@ -161,7 +88,7 @@ namespace CmsMain
                 vertices[n] -= min;
 
             max -= min;
-            return new Vector3Int((int)(max.x * step.x), (int)(max.y * step.y), (int)(max.z * step.z)) + Vector3Int.one;
+            return new Vector3Int((int)(max.x * Step.x), (int)(max.y * Step.y), (int)(max.z * Step.z)) + Vector3Int.one;
         }
 
         private List<Octant>[][] GetStartingOctants(List<Vector3> intersections, Vector3Int dimensions)
@@ -177,8 +104,8 @@ namespace CmsMain
             }
 
             foreach (Vector3 v in intersections)
-                startingOctants[(int)(v.x * step.x)][(int)(v.y * step.y)]
-                    .Add(new Octant(v.x, v.y, v.z, (int)(v.z * step.z)));
+                startingOctants[(int)(v.x * Step.x)][(int)(v.y * Step.y)]
+                    .Add(new Octant(v.x, v.y, v.z, (int)(v.z * Step.z)));
 
             for (int x = 0; x < startingOctants.Length; x++)
                 for (int y = 0; y < startingOctants[x].Length; y++)
@@ -194,7 +121,7 @@ namespace CmsMain
 
             for (int n = 0; n < triangles.Length; n += 3)
             {
-                t = new Triangle(triangles, vertices, n, step);
+                t = new Triangle(triangles, vertices, n, Step);
                 t.GetIntersections(intersections);
             }
 
@@ -253,7 +180,7 @@ namespace CmsMain
             private void GetPerspectives(List<Vector3> intersections, Vector3 facing, Vector3 start)
             {
                 GetEdgeIntersections(intersections, x, y, z, facing.x, facing.y, start.x, start.y);
-                GetEdgeIntersections(intersections, y, x, z, facing.x, facing.z, start.x, start.z); 
+                GetEdgeIntersections(intersections, y, x, z, facing.x, facing.z, start.x, start.z);
                 GetEdgeIntersections(intersections, z, x, y, facing.y, facing.z, start.y, start.z);
             }
 
@@ -273,8 +200,8 @@ namespace CmsMain
                     right = start2 + n / end2;
 
                     middleEdge = new Vector3(
-                        Math.Abs(edge1.x - edge2.x) * step.x, 
-                        Math.Abs(edge1.y - edge2.y) * step.y, 
+                        Math.Abs(edge1.x - edge2.x) * step.x,
+                        Math.Abs(edge1.y - edge2.y) * step.y,
                         Math.Abs(edge1.z - edge2.z) * step.z) * res;
 
                     GetMidIntersections(intersections, edge1, edge2, middleEdge.x, 1f - (int)(middleEdge.x) / middleEdge.x);
