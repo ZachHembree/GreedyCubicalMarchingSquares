@@ -7,4 +7,4 @@ In order to use this, you'll need to create an instance of one of the classes in
 
 
 ![Image of unreduced cabinet mesh](https://i.imgur.com/OrYfzpG.jpg)
-![Image of reduced cabinet mesh](https://i.imgur.com/EjaXfVo.jpg)
+![Image of reduced cabinet mesh](https://i.imgur.com/sOrilIL.png)
