@@ -1,5 +1,7 @@
 # Greedy Cubical Marching Squares
-This is a partial implementation of the Cubical Marching Squares algorithm for use with Unity Engine. As of yet it lacks lacks the amgiguous case resolution or sharp feature preservation features described in the original [National Taiwan University paper](https://graphics.cmlab.csie.ntu.edu.tw/CMS/), but it does support a WIP version of a voxel simplification feature that is designed to combine voxels with coplanar surfaces and minimize the number of polygons needed to represent flat areas while retaining a high level of detail.
+This is a partial implementation of the Cubical Marching Squares algorithm for use with Unity Engine. As of yet it lacks lacks the amgiguous case resolution or sharp feature preservation features described in the original [National Taiwan University paper](https://graphics.cmlab.csie.ntu.edu.tw/CMS/), but it does support a WIP version of a voxel simplification feature that is designed to combine voxels with coplanar surfaces and minimize the number of polygons needed to represent flat areas while retaining a high level of detail. 
+
+This project is no longer in development and is being abandoned in favor of another project that I hope I'll actually start at some point.
 
 
 ![Image of unreduced and unreduced cabinet meshes](https://i.imgur.com/3Gkreem.png)
